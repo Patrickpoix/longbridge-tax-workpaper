@@ -1,0 +1,6 @@
+-r requirements.txt
+build>=1.2,<2
+pytest>=8,<10
+pytest-cov>=6,<8
+reportlab>=4,<5
+pypdf>=5,<6

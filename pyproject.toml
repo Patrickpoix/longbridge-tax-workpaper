@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "longbridge-tax-workpaper"
+version = "0.4.1"
+description = "Generate reviewable Chinese tax workpapers from Longbridge Securities monthly statement PDFs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "Longbridge Tax Workpaper contributors" }]
+dependencies = [
+  "pdfplumber>=0.11,<0.12",
+  "Pillow>=10,<13",
+  "openpyxl>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "pytest>=8,<10",
+  "pytest-cov>=6,<8",
+  "reportlab>=4,<5",
+  "pypdf>=5,<6",
+]
+ocr = [
+  "paddleocr>=3,<4",
+  "paddlepaddle>=3,<4",
+]
+
+[project.scripts]
+longbridge-tax-workpaper = "longbridge_tax_workpaper.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["longbridge_tax_workpaper*"]
+
+[tool.setuptools.package-data]
+longbridge_tax_workpaper = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["longbridge_tax_workpaper"]

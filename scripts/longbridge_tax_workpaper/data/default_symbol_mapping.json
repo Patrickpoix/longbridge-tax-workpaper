@@ -1,0 +1,18 @@
+{
+  "mapping_version": "public-default-v1",
+  "match_policy": "exact_normalized_alias_only",
+  "records": [
+    {"security_id": "HK:01288", "aliases": ["农业银行", "中国农业银行"], "source": "public instrument name"},
+    {"security_id": "HK:01378", "aliases": ["中国宏桥"], "source": "public instrument name"},
+    {"security_id": "HK:06886", "aliases": ["华泰证券"], "source": "public instrument name"},
+    {"security_id": "HK:01530", "aliases": ["三生制药"], "source": "public instrument name"},
+    {"security_id": "HK:00857", "aliases": ["中国石油股份", "中国石油"], "source": "public instrument name"},
+    {"security_id": "US:AVGO", "aliases": ["博通"], "source": "public instrument name"},
+    {"security_id": "US:UNH", "aliases": ["联合健康"], "source": "public instrument name"},
+    {"security_id": "US:VST", "aliases": ["Vistra"], "source": "public instrument name"},
+    {"security_id": "US:UGL", "aliases": ["黄金2倍做多-ProShares", "黄金2倍做多", "2倍做多黄金ETF-ProShares"], "source": "public instrument name"},
+    {"security_id": "US:YINN", "aliases": ["富时中国3倍做多ETF-Direxion", "富时中国3倍做多ETF"], "source": "public instrument name"},
+    {"security_id": "US:DFEN", "aliases": ["3倍做多航空航天与国防ETF-Direxion", "3倍做多航空航天与国"], "source": "public instrument name"},
+    {"security_id": "US:PDD", "aliases": ["拼多多"], "source": "public instrument name"}
+  ]
+}

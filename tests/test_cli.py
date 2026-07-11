@@ -1,0 +1,32 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from longbridge_tax_workpaper.cli import build_parser
+
+
+def test_ocr_fallback_is_enabled_by_default_and_can_be_disabled():
+    parser = build_parser()
+    assert parser.parse_args(["statements"]).enable_ocr is True
+    assert parser.parse_args(["statements", "--disable-ocr"]).enable_ocr is False
+
+
+def test_module_help_runs_without_private_excel_runtime():
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run([sys.executable, "-m", "longbridge_tax_workpaper", "--help"], env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert ("artifact" + "_tool") not in result.stderr
+    assert "--password" not in result.stdout
+
+
+def test_console_entrypoint_help_runs_after_install():
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    executable = Path(sys.executable).with_name("longbridge-tax-workpaper")
+    if sys.platform == "win32":
+        executable = executable.with_suffix(".exe")
+    result = subprocess.run([str(executable), "--help"], env=env, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert "--tax-year" in result.stdout

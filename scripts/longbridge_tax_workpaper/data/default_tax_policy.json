@@ -1,0 +1,29 @@
+{
+  "policy_version": "generic-default-v4",
+  "tax_year": null,
+  "reporting_currency": "CNY",
+  "year_end_date": null,
+  "year_end_fx_rates": {
+    "USD": {"rate": null, "source_status": "missing", "source_date": null, "source_url": null, "evidence_sha256": null},
+    "HKD": {"rate": null, "source_status": "missing", "source_date": null, "source_url": null, "evidence_sha256": null}
+  },
+  "category_rules": {},
+  "property_transfer_loss_offset": {
+    "status": "scenario_only",
+    "treatment": "show_multiple_scenarios",
+    "include_unrealized_pnl": false,
+    "tax_rate": 0.20,
+    "authority_status": "not_embedded_as_final_law"
+  },
+  "dividend_filing_basis": {
+    "tax_rate": 0.20,
+    "automatic_credit_without_formal_documents": 0.0,
+    "statement_withholding_as_candidate": true
+  },
+  "precision": {
+    "internal_decimal_places": 8,
+    "cny_output_decimal_places": 2,
+    "rounding": "ROUND_HALF_UP",
+    "annual_rounding_order": "sum_unrounded_rows_then_round_output"
+  }
+}

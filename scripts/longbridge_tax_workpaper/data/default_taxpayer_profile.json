@@ -1,0 +1,13 @@
+{
+  "profile_version": "generic-template-v4",
+  "tax_year": null,
+  "tax_residency": {"jurisdiction": "CN", "is_china_tax_resident": true, "basis": "tool_scope_default"},
+  "competent_tax_authority_location": {"province_or_municipality": null, "city": null, "district": null},
+  "employment": {"has_employer": null, "status": "未填写"},
+  "foreign_income_filing": {"status": "未填写", "overdue": null},
+  "scope_confirmation": {"single_longbridge_account_only": true, "other_foreign_broker_accounts": null, "other_foreign_income": null},
+  "foreign_tax_credit_documents": {"available": false, "documents": [], "treatment": "automatic_credit_zero_statement_candidate_only"},
+  "cost_basis_method": {"selected_method": null, "preferred_method": "MOVING_AVERAGE", "methods_produced": ["FIFO", "MOVING_AVERAGE"], "status": "method_unconfirmed"},
+  "account_opening_month": null,
+  "attestation": {"record_type": "generated_template", "confirmed_at": null}
+}

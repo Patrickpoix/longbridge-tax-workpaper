@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install package and public test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" -c constraints.txt
+      - name: Run public tests
+        run: python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=80 -q
+      - name: Verify installed command
+        run: |
+          longbridge-tax-workpaper --help
+          python -m longbridge_tax_workpaper --help
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Validate a clean tracked release tree
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p /tmp/longbridge-release
+          git ls-files -z | tar --null -T - -cf - | tar -xf - -C /tmp/longbridge-release
+          python scripts/validate_release.py /tmp/longbridge-release

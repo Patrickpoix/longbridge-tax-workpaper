@@ -1,0 +1,6 @@
+interface:
+  display_name: "长桥税务工作底稿"
+  short_description: "从长桥月结单生成中文多表 Excel 与可复核底稿"
+  icon_small: "./assets/icon-small.png"
+  icon_large: "./assets/icon-large.png"
+  default_prompt: "使用 $longbridge-tax-workpaper 处理我的长桥证券月结单 PDF，生成单个多工作表 Excel、独立底稿包和复核状态。"
