@@ -1,0 +1,15 @@
+include SKILL.md
+include LICENSE.txt
+include README.md
+include SECURITY.md
+include CONTRIBUTING.md
+include constraints.txt
+include requirements.txt
+include requirements-dev.txt
+include agents/openai.yaml
+recursive-include assets *.png
+recursive-include references *.md
+include scripts/run_workpaper.py
+include scripts/validate_release.py
+recursive-include tests *.py *.pdf
+include .github/workflows/ci.yml
