@@ -145,7 +145,8 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
 
     # 1. 输入目录
     while True:
-        raw = input("请输入月结单目录路径（可直接拖入文件夹）:\n> ").strip().strip('"').strip("'")
+        raw = input("请输入月结单目录路径（可直接拖入文件夹）:\n"
+                     "提示：如果选 FIFO/BOTH，年初有持仓的标的需要提供开仓以来月份的月结单\n> ").strip().strip('"').strip("'")
         if not raw:
             print("错误：必须指定月结单目录", file=sys.stderr)
             sys.exit(1)
@@ -228,9 +229,11 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         elif cbm_raw in ("FIFO", "BOTH"):
             label = "FIFO" if cbm_raw == "FIFO" else "BOTH（含 FIFO）"
             print()
-            print(f"  ⚠ {label} 需要纳税年前的完整月结单来重建期初成本。")
-            print(f"  如果输入目录中已包含前期月结单，系统将自动使用。")
-            print(f"  如果未提供，将使用券商展示成本作为替代，准确性降低。")
+            print(f"  ⚠ {label} 需要追溯年初持仓标的的原始买入记录。")
+            print()
+            print(f"  例如：某只港股 2025 年初有持仓但全年无买入记录且发生卖出，")
+            print(f"  则需要提供该标的买入当月起的历史月结单来重建 FIFO 成本。")
+            print(f"  如果未提供，系统将使用券商展示成本（移动平均）替代。")
             print()
             confirm = input("  确认选择？按 Enter 确认，输入 back 重新选择:\n> ").strip().lower()
             if confirm == "back":
