@@ -216,24 +216,30 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     print()
     print("--- 成本计算方法选择 ---")
     print("  MOVING_AVERAGE (默认): 使用券商展示成本（移动平均），无需前期月结单")
-    print("  FIFO              : 先进先出法，需提供纳税年前的所有月结单")
-    print("  BOTH              : 并列输出两种方法，需提供纳税年前月结单")
+    print("  FIFO              : 先进先出法 ⚠ 需提供纳税年前的所有月结单")
+    print("  BOTH              : 并列输出两种方法 ⚠ 需提供纳税年前的所有月结单")
     print()
-    cbm_raw = input("请选择（回车默认 MOVING_AVERAGE，或输入 FIFO / BOTH / MA）:\n> ").strip().upper()
-    if cbm_raw in ("MA", "MOVING_AVERAGE"):
-        fx_args.append("--cost-basis-method=MOVING_AVERAGE")
-    elif cbm_raw == "FIFO":
-        fx_args.append("--cost-basis-method=FIFO")
-        print()
-        print("  提示：FIFO 需要纳税年前的完整月结单来重建期初成本。")
-        print("  如果输入目录中已包含前期月结单，系统将自动使用。")
-        print("  如果未提供，将使用券商展示成本作为替代。")
-    elif cbm_raw == "BOTH":
-        fx_args.append("--cost-basis-method=BOTH")
-        print()
-        print("  提示：BOTH 包含 FIFO，需要纳税年前月结单来重建期初成本。")
-        print("  如果未提供前期月结单，FIFO 结果将使用券商展示成本。")
-    # else: MOVING_AVERAGE (default)
+    while True:
+        cbm_raw = input("请选择（回车默认 MOVING_AVERAGE，或输入 FIFO / BOTH / MA）:\n> ").strip().upper()
+        if not cbm_raw or cbm_raw in ("MA", "MOVING_AVERAGE"):
+            # MOVING_AVERAGE: no warning needed
+            print("  已选择：MOVING_AVERAGE（券商展示成本）")
+            break
+        elif cbm_raw in ("FIFO", "BOTH"):
+            label = "FIFO" if cbm_raw == "FIFO" else "BOTH（含 FIFO）"
+            print()
+            print(f"  ⚠ {label} 需要纳税年前的完整月结单来重建期初成本。")
+            print(f"  如果输入目录中已包含前期月结单，系统将自动使用。")
+            print(f"  如果未提供，将使用券商展示成本作为替代，准确性降低。")
+            print()
+            confirm = input("  确认选择？按 Enter 确认，输入 back 重新选择:\n> ").strip().lower()
+            if confirm == "back":
+                print("  已取消，请重新选择。")
+                continue
+            fx_args.append(f"--cost-basis-method={cbm_raw}")
+            break
+        else:
+            print(f"  无效输入 '{cbm_raw}'，请输入 MA / FIFO / BOTH 或直接回车")
 
     print()
     print("正在处理，请稍候...")
