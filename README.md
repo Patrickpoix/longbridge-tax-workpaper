@@ -131,6 +131,25 @@ longbridge-tax-workpaper 月结单目录 \
 python -m longbridge_tax_workpaper 月结单目录 --output-dir outputs ...
 ```
 
+### 税务口径选择（v1.0.0 新增）
+
+默认采用保守口径，可通过以下参数显式选择：
+
+```bash
+# 只输出 FIFO 方法（默认 BOTH 并列输出）
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --cost-basis-method FIFO
+
+# 启用境外预扣税抵免（默认关闭）
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --withholding-credit
+
+# 允许融资利息税前扣除（默认不扣除）
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --deduct-margin-interest
+
+# 组合使用
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --fx HKD=0.92 \
+  --cost-basis-method FIFO --withholding-credit --deduct-margin-interest
+```
+
 ## 输出
 
 - `longbridge_<年度>_processed_results.xlsx`：单一、多工作表 Excel；
