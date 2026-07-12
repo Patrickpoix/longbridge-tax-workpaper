@@ -9,7 +9,7 @@ GitHub: https://github.com/Patrickpoix/longbridge-tax-workpaper
 ## 工作区结构
 
 `
-E:\github发表\longbridge tax workpaper\
+[local]\longbridge tax workpaper\
 ├── longbridge-tax-workpaper\          # GitHub 仓库最初版本（基础版）
 ├── skill(2)\longbridge-tax-workpaper\ # ChatGPT 修改版（增加 precision-and-evidence 等）
 ├── skillv3\longbridge-tax-workpaper\  # ✅ 当前最终版（v0.4.1，已推送到 GitHub）
@@ -69,7 +69,8 @@ E:\github发表\longbridge tax workpaper\
 3. **模板签名评分** — 识别成功后打分数 (≥8 可信)；低分月份进入 月结单版式识别置信度 复核状态
 4. **--fx-source-date / --fx-evidence-sha256** — 汇率来源元数据支持
 5. **money.py** — Decimal ROUND_HALF_UP 统一精度，内部 8 位/展示 2 位
-6. **elease_hygiene.py** — 发布前扫描敏感信息（账户号、密码、真实姓名等）
+6. **
+elease_hygiene.py** — 发布前扫描敏感信息（账户号、密码、真实姓名等）
 7. **更好的 README** — badge + mermaid 流程图 + OCR 安装说明
 8. **CI 增强** — GitHub Actions 自动跑测试 + build + release 校验
 
@@ -123,16 +124,19 @@ python -m longbridge_tax_workpaper 月结单目录 ...
 - SOURCE_JURISDICTION 检查依赖于用户维护的 instrument_jurisdiction.json
 - OCR 模块 (paddleocr) 是可选依赖，需要 pip install ".[ocr]"
 - 2024 年只有 8-12 月数据，测试覆盖不完全
-- combined-real-input 中含真实账户号 ACCOUNT_ID，已在 .gitignore 和 elease_hygiene.py 中屏蔽
+- combined-real-input 中含已匿名处理的测试数据 ****，已在 .gitignore 和 
+elease_hygiene.py 中屏蔽
 - 年末汇率需要用户自行从国家外汇管理局网站获取并传入
 
 ## 隐私注意事项
 
-- 源码和仓库中不含真实账户号、密码、姓名
+- 源码和仓库中不含已匿名处理的测试数据、密码、姓名
 - 	est_sensitive_release.py 和 alidate_release.py 发布前自动扫描敏感 token
-- combined-real-input/、uture-input/、uture-output/、eal-output/ 等审查目录在 .gitignore 外，不进仓库
+- combined-real-input/、uture-input/、uture-output/、
+eal-output/ 等审查目录在 .gitignore 外，不进仓库
 - 原始 PDF 默认不进输出 ZIP，需命令行 --include-source-pdfs
 
 ## 哪些文件已推送到 GitHub
 
 所有 79 个文件已提交并推送到 main 分支。见 https://github.com/Patrickpoix/longbridge-tax-workpaper
+per
