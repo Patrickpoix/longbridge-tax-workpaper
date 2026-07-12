@@ -37,6 +37,19 @@ flowchart LR
   D --> G[复核状态 JSON]
 ```
 
+## Quick Start (3 steps)
+
+### Windows
+1. Double-click start.bat
+2. Follow prompts for PDF folder and password
+3. Check outputs/ folder for results
+
+### Command Line
+pip install .
+python -m longbridge_tax_workpaper <pdf-dir> --output-dir outputs --tax-year 2025 --fx USD=7.0288 --fx HKD=0.90322
+
+### Direct run (no install)
+python scripts/run_workpaper.py <pdf-dir> --output-dir outputs --tax-year 2025
 ## 环境要求
 
 - Python 3.11、3.12 或 3.13；
