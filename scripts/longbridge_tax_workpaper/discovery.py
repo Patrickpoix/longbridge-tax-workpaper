@@ -90,10 +90,20 @@ def split_account_and_year(
             tax_year = max(complete)
         elif years:
             coverage = {year: sorted(item.statement_month for item in items) for year, items in years.items()}
-            raise ValueError(
-                "未指定纳税年度，且没有任何年份包含完整1月至12月月结单；"
-                f"请补齐年度或显式使用 --tax-year 生成不完整年度工作底稿。coverage={coverage}"
-            )
+            lines = ["未指定纳税年度，且没有任何年份包含完整1月至12月月结单：", ""]
+            for yr in sorted(coverage):
+                months = coverage[yr]
+                month_nums = [int(m[4:]) for m in months]
+                missing = sorted(set(range(1, 13)) - set(month_nums))
+                month_str = ", ".join(f"{m:02d}" for m in month_nums)
+                if missing:
+                    miss_str = ", ".join(f"{m:02d}" for m in missing)
+                    lines.append(f"  {yr}: 仅有 {month_str} 月（缺 {miss_str} 月共 {len(missing)} 个月）")
+                else:
+                    lines.append(f"  {yr}: 完整 12 个月")
+            lines.append("")
+            lines.append("请补齐缺失月份，或用 --tax-year <年度> 显式指定目标年度。")
+            raise ValueError("\n".join(lines))
         else:
             raise ValueError("无法从PDF识别纳税年度")
 

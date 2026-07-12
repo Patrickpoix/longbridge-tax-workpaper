@@ -12,8 +12,8 @@ license = "MIT"
 license-files = ["LICENSE.txt"]
 authors = [{ name = "Longbridge Tax Workpaper contributors" }]
 dependencies = [
-  "pdfplumber>=0.11,<0.12",
-  "Pillow>=10,<13",
+  "pdfplumber>=0.11,<0.13",
+  "Pillow>=10,<14",
   "openpyxl>=3.1,<4",
 ]
 
