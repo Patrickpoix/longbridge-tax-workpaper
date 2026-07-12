@@ -120,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cost-basis-method",
         choices=["FIFO", "MOVING_AVERAGE", "BOTH"],
-        default="BOTH",
-        help="成本计算方法：MOVING_AVERAGE（券商展示成本，无需前期数据）| FIFO（先进先出，需提供纳税年前月结单）| BOTH（默认，并列输出）",
+        default="MOVING_AVERAGE",
+        help="成本计算方法，默认 MOVING_AVERAGE（券商展示成本，无需前期数据）| FIFO（先进先出，需提供纳税年前月结单）| BOTH（并列输出两种）",
     )
     parser.add_argument(
         "--withholding-credit",
@@ -215,11 +215,11 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     # 8. 成本计算方法
     print()
     print("--- 成本计算方法选择 ---")
-    print("  BOTH (默认)       : 并列输出FIFO和移动平均两种方法")
-    print("  MOVING_AVERAGE    : 使用券商展示成本（移动平均），无需前期月结单")
+    print("  MOVING_AVERAGE (默认): 使用券商展示成本（移动平均），无需前期月结单")
     print("  FIFO              : 先进先出法，需提供纳税年前的所有月结单")
+    print("  BOTH              : 并列输出两种方法，需提供纳税年前月结单")
     print()
-    cbm_raw = input("请选择成本计算方法（BOTH / MA / FIFO，回车默认 BOTH）:\n> ").strip().upper()
+    cbm_raw = input("请选择（回车默认 MOVING_AVERAGE，或输入 FIFO / BOTH / MA）:\n> ").strip().upper()
     if cbm_raw in ("MA", "MOVING_AVERAGE"):
         fx_args.append("--cost-basis-method=MOVING_AVERAGE")
     elif cbm_raw == "FIFO":
@@ -228,7 +228,12 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         print("  提示：FIFO 需要纳税年前的完整月结单来重建期初成本。")
         print("  如果输入目录中已包含前期月结单，系统将自动使用。")
         print("  如果未提供，将使用券商展示成本作为替代。")
-    # else: BOTH (default)
+    elif cbm_raw == "BOTH":
+        fx_args.append("--cost-basis-method=BOTH")
+        print()
+        print("  提示：BOTH 包含 FIFO，需要纳税年前月结单来重建期初成本。")
+        print("  如果未提供前期月结单，FIFO 结果将使用券商展示成本。")
+    # else: MOVING_AVERAGE (default)
 
     print()
     print("正在处理，请稍候...")
