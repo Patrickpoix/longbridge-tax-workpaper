@@ -22,7 +22,8 @@ _RUNTIME_ENV = {
 }
 
 
-def _validated_rate(value: object) -> float | None:
+def _validated_rate(value: object) -> str | None:
+    """Validate an FX rate and return its exact string representation."""
     if value in (None, ""):
         return None
     try:
@@ -31,12 +32,12 @@ def _validated_rate(value: object) -> float | None:
         raise ValueError(f"invalid FX rate: {value!r}") from exc
     if rate <= 0:
         raise ValueError(f"FX rate must be positive: {value!r}")
-    return float(rate)
+    return str(rate)
 
 
 def _default_policy(
     tax_year: int,
-    fx_rates: dict[str, float] | None = None,
+    fx_rates: dict[str, str | Decimal] | None = None,
     fx_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     fx_rates = fx_rates or {}
@@ -168,12 +169,15 @@ def prepare_runtime_config(
     *,
     tax_year: int,
     account_opening_month: str | None,
-    fx_rates: dict[str, float] | None = None,
+    fx_rates: dict[str, str | Decimal] | None = None,
     fx_metadata: dict[str, dict[str, Any]] | None = None,
     policy_path: str | Path | None = None,
     profile_path: str | Path | None = None,
     jurisdiction_path: str | Path | None = None,
     symbol_mapping_path: str | Path | None = None,
+    cost_basis_method: str = "BOTH",
+    withholding_credit: bool = False,
+    deduct_margin_interest: bool = False,
 ) -> dict[str, Path]:
     """Materialize an auditable runtime configuration without mutating globals."""
 
@@ -202,6 +206,12 @@ def prepare_runtime_config(
                     item["evidence_sha256"] = metadata.get("evidence_sha256")
     else:
         policy = _default_policy(tax_year, fx_rates, fx_metadata)
+    # Apply user-selected tax treatment options to policy
+    if deduct_margin_interest:
+        policy.setdefault("category_rules", {}).setdefault("margin_interest_deductible", {})["deductible_in_final_filing"] = True
+        policy["category_rules"]["margin_interest_deductible"]["treatment"] = "deductible"
+    if withholding_credit:
+        policy.setdefault("dividend_filing_basis", {})["automatic_credit_without_formal_documents"] = 1.0
     _write_json(policy_target, policy)
 
     if profile_path:
@@ -211,6 +221,12 @@ def prepare_runtime_config(
             profile["account_opening_month"] = account_opening_month
     else:
         profile = _default_profile(tax_year, account_opening_month)
+    # Apply user-selected cost basis method to profile
+    methods_produced = {"FIFO": ["FIFO"], "MOVING_AVERAGE": ["MOVING_AVERAGE"], "BOTH": ["FIFO", "MOVING_AVERAGE"]}
+    profile.setdefault("cost_basis_method", {})["methods_produced"] = methods_produced.get(cost_basis_method, ["FIFO", "MOVING_AVERAGE"])
+    if cost_basis_method != "BOTH":
+        profile["cost_basis_method"]["selected_method"] = cost_basis_method
+        profile["cost_basis_method"]["status"] = "user_selected"
     _write_json(profile_target, profile)
 
     if jurisdiction_path:

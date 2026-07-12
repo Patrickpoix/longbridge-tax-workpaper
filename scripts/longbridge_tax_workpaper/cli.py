@@ -25,8 +25,9 @@ def _key_value_pairs(values: list[str], *, label: str) -> dict[str, str]:
     return result
 
 
-def _fx(values: list[str]) -> dict[str, float]:
-    result: dict[str, float] = {}
+def _fx(values: list[str]) -> dict[str, str]:
+    """Parse and validate FX rate strings, returning them as strings to preserve precision."""
+    result: dict[str, str] = {}
     for currency, raw_rate in _key_value_pairs(values, label="汇率").items():
         try:
             rate = Decimal(raw_rate)
@@ -34,7 +35,7 @@ def _fx(values: list[str]) -> dict[str, float]:
             raise argparse.ArgumentTypeError(f"无效汇率: {currency}={raw_rate}") from exc
         if rate <= 0:
             raise argparse.ArgumentTypeError(f"汇率必须大于0: {currency}={raw_rate}")
-        result[currency] = float(rate)
+        result[currency] = str(rate)
     return result
 
 
@@ -115,6 +116,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="在底稿ZIP中复制原始PDF（高度敏感；默认不复制）",
     )
+    # 税务口径选择参数（保守默认值 = 最稳妥的税务处理）
+    parser.add_argument(
+        "--cost-basis-method",
+        choices=["FIFO", "MOVING_AVERAGE", "BOTH"],
+        default="BOTH",
+        help="成本计算方法（默认 BOTH，并列输出两种方法供参考）",
+    )
+    parser.add_argument(
+        "--withholding-credit",
+        action="store_true",
+        help="启用境外预扣税抵免（默认关闭；仅在持有合格境外纳税凭证时启用）",
+    )
+    parser.add_argument(
+        "--deduct-margin-interest",
+        action="store_true",
+        help="允许融资利息税前扣除（默认不扣除；需个案判断是否符合税法条件）",
+    )
     return parser
 
 
@@ -126,11 +144,19 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     print()
 
     # 1. 输入目录
-    raw = input("请输入月结单目录路径（可直接拖入文件夹）:\n> ").strip().strip('"').strip("'")
-    if not raw:
-        print("错误：必须指定月结单目录", file=sys.stderr)
-        sys.exit(1)
-    input_dir = raw
+    while True:
+        raw = input("请输入月结单目录路径（可直接拖入文件夹）:\n> ").strip().strip('"').strip("'")
+        if not raw:
+            print("错误：必须指定月结单目录", file=sys.stderr)
+            sys.exit(1)
+        if raw.lower() == "q":
+            sys.exit(1)
+        if not os.path.isdir(raw):
+            print(f"错误：目录不存在或无法访问: {raw}", file=sys.stderr)
+            print("请重新输入，或输入 q 退出")
+            continue
+        input_dir = raw
+        break
 
     # 2. 密码
     pwd = input("\nPDF密码（未加密则直接回车）:\n> ")
@@ -138,8 +164,19 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         os.environ["LONGBRIDGE_PDF_PASSWORD"] = pwd
 
     # 3. 纳税年度
-    year_raw = input("\n纳税年度（例如 2025，回车自动检测完整年度）:\n> ").strip()
-    tax_year = int(year_raw) if year_raw else None
+    while True:
+        year_raw = input("\n纳税年度（例如 2025，回车自动检测完整年度）:\n> ").strip()
+        if not year_raw:
+            tax_year = None
+            break
+        try:
+            tax_year = int(year_raw)
+            if tax_year < 2010 or tax_year > 2100:
+                print("错误：年度应在 2010-2100 之间", file=sys.stderr)
+                continue
+            break
+        except ValueError:
+            print(f"错误：无效年度 '{year_raw}'，请输入4位数字（如 2025）", file=sys.stderr)
 
     # 4. 输出目录
     out_raw = input("\n输出目录（默认 outputs）:\n> ").strip().strip('"').strip("'")
@@ -149,10 +186,18 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     fx_args: list[str] = []
     usd = input("\nUSD/CNY 年末汇率（例如 7.0288，回车跳过）:\n> ").strip()
     if usd:
-        fx_args.append("--fx=USD=" + usd)
+        try:
+            Decimal(usd)
+            fx_args.append("--fx=USD=" + usd)
+        except InvalidOperation:
+            print(f"警告：忽略无效USD汇率 '{usd}'")
     hkd = input("\nHKD/CNY 年末汇率（例如 0.90322，回车跳过）:\n> ").strip()
     if hkd:
-        fx_args.append("--fx=HKD=" + hkd)
+        try:
+            Decimal(hkd)
+            fx_args.append("--fx=HKD=" + hkd)
+        except InvalidOperation:
+            print(f"警告：忽略无效HKD汇率 '{hkd}'")
 
     # 6. 来源URL
     usd_url = input("\nUSD汇率来源URL（可选，回车跳过）:\n> ").strip()
@@ -197,6 +242,9 @@ def _run(args: argparse.Namespace) -> int:
             symbol_mapping_path=args.symbol_map,
             enable_ocr=args.enable_ocr,
             include_source_pdfs=args.include_source_pdfs,
+            cost_basis_method=args.cost_basis_method,
+            withholding_credit=args.withholding_credit,
+            deduct_margin_interest=args.deduct_margin_interest,
         )
     except Exception as exc:
         print(f"错误: {exc}", file=sys.stderr)

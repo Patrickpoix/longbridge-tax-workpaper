@@ -85,7 +85,7 @@ def run_workpaper(
     password: str | None = None,
     tax_year: int | None = None,
     account_id: str | None = None,
-    fx_rates: dict[str, float] | None = None,
+    fx_rates: dict[str, str] | None = None,
     fx_metadata: dict[str, dict[str, Any]] | None = None,
     policy_path: str | Path | None = None,
     profile_path: str | Path | None = None,
@@ -93,6 +93,9 @@ def run_workpaper(
     symbol_mapping_path: str | Path | None = None,
     enable_ocr: bool = True,
     include_source_pdfs: bool = False,
+    cost_basis_method: str = "BOTH",
+    withholding_credit: bool = False,
+    deduct_margin_interest: bool = False,
 ) -> RunResult:
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
@@ -118,6 +121,9 @@ def run_workpaper(
         profile_path=profile_path,
         jurisdiction_path=jurisdiction_path,
         symbol_mapping_path=symbol_mapping_path,
+        cost_basis_method=cost_basis_method,
+        withholding_credit=withholding_credit,
+        deduct_margin_interest=deduct_margin_interest,
     )
 
     workpapers = output_dir / f"longbridge_{selected_year}_workpapers"

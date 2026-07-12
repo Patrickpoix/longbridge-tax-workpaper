@@ -21,7 +21,8 @@ def _resource_path(name: str) -> Path:
     return Path(str(files("longbridge_tax_workpaper").joinpath(f"data/{name}")))
 
 
-def _normalize_rate(value: object, *, currency: str, source: Path) -> float | None:
+def _normalize_rate(value: object, *, currency: str, source: Path) -> str | None:
+    """Validate and return the rate as a string to preserve precision through JSON."""
     if value in (None, ""):
         return None
     try:
@@ -30,7 +31,7 @@ def _normalize_rate(value: object, *, currency: str, source: Path) -> float | No
         raise ValueError(f"Invalid year-end FX rate for {currency} in {source}: {value!r}") from exc
     if rate <= 0:
         raise ValueError(f"Year-end FX rate for {currency} must be positive in {source}: {value!r}")
-    return float(rate)
+    return str(rate)
 
 
 def _select_path(explicit: str | Path | None, env_name: str, default_name: str) -> tuple[Path, bool]:
@@ -42,9 +43,15 @@ def _select_path(explicit: str | Path | None, env_name: str, default_name: str) 
     return _resource_path(default_name), False
 
 
-@lru_cache(maxsize=8)
+# Manual cache keyed by resolved path so env-var changes are picked up on next call.
+_TAX_POLICY_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def load_tax_policy(path: str | Path | None = None) -> dict[str, Any]:
     selected, explicitly_selected = _select_path(path, "LONGBRIDGE_TAX_POLICY_PATH", "default_tax_policy.json")
+    key = str(selected.resolve())
+    if key in _TAX_POLICY_CACHE:
+        return _TAX_POLICY_CACHE[key]
     if not selected.exists():
         if explicitly_selected:
             raise FileNotFoundError(f"Tax policy file not found: {selected}")
@@ -56,16 +63,23 @@ def load_tax_policy(path: str | Path | None = None) -> dict[str, Any]:
         item["rate"] = _normalize_rate(item.get("rate"), currency=currency, source=selected)
         item.setdefault("source_status", "missing" if item["rate"] is None else "provided")
     data["_source_path"] = str(selected)
+    _TAX_POLICY_CACHE[key] = data
     return data
 
 
-def year_end_fx_rate(currency: str, policy: dict[str, Any] | None = None) -> float | None:
+def year_end_fx_rate(currency: str, policy: dict[str, Any] | None = None) -> Decimal | None:
+    """Return the year-end FX rate as a Decimal to preserve precision."""
     policy = policy or load_tax_policy()
     value = policy.get("year_end_fx_rates", {}).get(currency, {}).get("rate")
-    return None if value in (None, "") else float(value)
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
-def require_year_end_fx_rate(currency: str, policy: dict[str, Any] | None = None) -> float:
+def require_year_end_fx_rate(currency: str, policy: dict[str, Any] | None = None) -> Decimal:
     rate = year_end_fx_rate(currency, policy)
     if rate is None:
         raise ValueError(f"Missing year-end FX rate for {currency}")
@@ -99,5 +113,5 @@ def load_taxpayer_profile(path: str | Path | None = None) -> dict[str, Any]:
 
 
 def clear_policy_caches() -> None:
-    load_tax_policy.cache_clear()
+    _TAX_POLICY_CACHE.clear()
     load_taxpayer_profile.cache_clear()

@@ -21,11 +21,12 @@ FINANCING_LIMIT_ALIASES = ("融资限额", "融资额度", "可融资额度")
 EQUITY_WITH_LOAN_ALIASES = ("含贷权益价值", "含贷款权益价值", "含融资权益价值")
 OTHER_FUND_FLOW_ALIASES = ("其他资金出入明细", "其他资金收支明细", "其他资金流水")
 TRADE_HEADER_ALIASES = (
-    ("下单时间", "委托时间", "订单时间"),
-    ("成交时间", "执行时间"),
-    ("平均价格", "成交均价", "平均成交价"),
+    ("下单时间", "委托时间", "订单时间", "下單時間", "委託時間"),
+    ("成交时间", "执行时间", "成交時間", "執行時間"),
+    ("平均价格", "成交均价", "平均成交价", "平均價格", "成交均價"),
 )
-FEE_ALIASES = ("佣金", "经纪佣金", "平台费", "印花税", "交易征费", "交易费")
+FEE_ALIASES = ("佣金", "经纪佣金", "平台费", "印花税", "交易征费", "交易费", "平台費", "交收費")
+HOLDING_HEADER_ALIASES = ("持仓", "投資組合", "投资组合", "持倉")
 
 
 def _contains_alias(text: str, aliases: tuple[str, ...]) -> bool:
@@ -80,6 +81,7 @@ def detect_template(document: IngestedDocument) -> TemplateVersion:
         "has_fee_anchor": _contains_alias(full_text, FEE_ALIASES),
         "has_currency_rows": "港元" in first_text or "美元" in first_text,
         "has_page_footer": bool(re.search(r"Page\s*\d+\s*of\s*\d+", full_text, re.IGNORECASE)),
+        "has_holding_section": _contains_alias(full_text, HOLDING_HEADER_ALIASES),
     }
 
     base_requirements = ["has_statement_title", "has_statement_month", "has_account_id"]
@@ -89,6 +91,7 @@ def detect_template(document: IngestedDocument) -> TemplateVersion:
         "has_trade_detail_anchor",
         "has_fee_anchor",
         "has_currency_rows",
+        "has_holding_section",
     ]
     score = sum(2 if key in base_requirements else 1 for key, value in features.items() if value)
     missing = [key for key in base_requirements if not features[key]]
