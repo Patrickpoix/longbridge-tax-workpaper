@@ -12,7 +12,7 @@ from .runner import run_workpaper
 from .discovery import find_pdfs, parse_pdf_set, split_account_and_year
 from .postprocess import resolve_cross_month_statement_context
 from .cost_basis import _securities_needing_prior_data
-from .pipeline import parse_statement
+from pathlib import Path
 
 
 def _key_value_pairs(values: list[str], *, label: str) -> dict[str, str]:
