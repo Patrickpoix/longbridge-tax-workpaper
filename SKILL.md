@@ -13,10 +13,17 @@ Generate a reviewable workpaper, never claim to create a legally final tax retur
 2. Use a PDF password already supplied in the conversation. Otherwise ask once. Pass it only through `LONGBRIDGE_PDF_PASSWORD`; never place it in CLI arguments, source, logs, workbooks, manifests, or reports.
 3. Determine the requested tax year. If absent, let the program select only the latest year containing exactly January through December. Do not silently treat a partial year as complete.
 4. Obtain the December 31 USD/CNY and HKD/CNY middle rates from an official Chinese source when possible. Pass the rates and source metadata to the program. If unavailable, omit the rates; keep CNY outputs blank and mark them incomplete.
-5. Install and run from this skill directory:
+
+### Quick install & interactive mode (no args needed)
 
 ```bash
 python -m pip install .
+longbridge-tax-workpaper   # ← 无参数时自动进入交互式引导
+```
+
+### Full CLI mode (with args)
+
+```bash
 export LONGBRIDGE_PDF_PASSWORD='<runtime-password>'
 longbridge-tax-workpaper <pdf-directory> \
   --output-dir <output-directory> \
@@ -28,6 +35,10 @@ longbridge-tax-workpaper <pdf-directory> \
   --fx-source-date USD=<YYYY-12-31> \
   --fx-source-date HKD=<YYYY-12-31>
 ```
+
+### Windows one-click
+
+Double-click `start.bat` — it handles venv creation, pip install, and interactive prompts.
 
 6. Verify that the output contains one multi-sheet Excel workbook, one workpaper ZIP, one processed-delivery ZIP, and one review-status JSON.
 7. Inspect at least `年度纳税汇总`, `财产转让计税情景`, `FIFO已实现盈亏`, `移动平均已实现盈亏`, `股息与预扣税`, `期初逐月持仓对账`, `持仓数量对账`, and `复核就绪性`.

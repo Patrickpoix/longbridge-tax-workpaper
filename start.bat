@@ -1,31 +1,69 @@
 @echo off
 chcp 65001>nul
 setlocal enabledelayedexpansion
-echo =======================
-echo  Longbridge Tax Workpaper
-echo =======================
+
+echo =====================================
+echo   Longbridge Tax Workpaper
+echo   长桥证券税务工作底稿 — 一键启动
+echo =====================================
 echo.
-where python >nul 2>nul || (echo [Error] 请先安装 Python 3.11+ & echo 下载: https://www.python.org/downloads/ & pause & exit /b 1)
-if not exist .venv (echo [1/3] 创建虚拟环境... & python -m venv .venv)
-call .venv/Scripts/activate.bat
-echo [2/3] 安装依赖...
-python -m pip install --quiet -e . -c constraints.txt
+
+REM 检查 Python
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [错误] 请先安装 Python 3.11+
+    echo   下载: https://www.python.org/downloads/
+    pause
+    exit /b 1
+)
+
+REM 创建虚拟环境（如不存在）
+if not exist ".venv" (
+    echo [1/3] 首次运行：创建虚拟环境...
+    python -m venv .venv
+    if errorlevel 1 (
+        echo [错误] 创建虚拟环境失败
+        pause
+        exit /b 1
+    )
+)
+
+echo [2/3] 检查并安装依赖...
+call .venv\Scripts\activate.bat
+
+REM 检查是否需要安装
+python -c "import longbridge_tax_workpaper" 2>nul
+if errorlevel 1 (
+    python -m pip install --quiet -e . -c constraints.txt
+    if errorlevel 1 (
+        echo [错误] 依赖安装失败，请检查网络连接
+        pause
+        exit /b 1
+    )
+) else (
+    echo    依赖已就绪
+)
+
 echo [3/3] 启动...
 echo.
-echo 请输入月结单目录路径（可直接拖入文件夹）
-set /p DIR=^> 
-set /p PWD=密码（未加密则直接回车）: 
-if not "%PWD%"=="" set LONGBRIDGE_PDF_PASSWORD=%PWD%
-set /p YEAR=纳税年度（例如 2025，回车自动检测）: 
-set /p USD=USD/CNY 年末汇率（例如 7.0288，回车跳过）: 
-set /p HKD=HKD/CNY 年末汇率（例如 0.90322，回车跳过）: 
-set FX=
-if not "%USD%"=="" set FX=%FX% --fx USD=%USD%
-if not "%HKD%"=="" set FX=%FX% --fx HKD=%HKD%
+echo 提示：程序已进入交互式引导模式，请按提示操作。
+echo 月结单目录可直接拖入窗口，无需手动输入完整路径。
 echo.
-echo 正在处理，请稍候...
-echo.
-if not "%YEAR%"=="" (python -m longbridge_tax_workpaper "%DIR%" --output-dir outputs --tax-year %YEAR% %FX%) else (python -m longbridge_tax_workpaper "%DIR%" --output-dir outputs %FX%)
-if errorlevel 1 (echo 失败) else (echo 已完成 - 输出文件在 outputs 文件夹)
+python -m longbridge_tax_workpaper
+
+if errorlevel 1 (
+    echo.
+    echo 处理失败。可能是以下原因：
+    echo   - 目录中没有有效的月结单 PDF
+    echo   - PDF 密码错误
+    echo   - 缺少依赖
+    echo.
+    echo 详情请查看上方错误信息。
+) else (
+    echo.
+    echo 处理完成！
+    echo 输出文件在 outputs 文件夹中，请查看。
+)
+
 echo.
 pause
