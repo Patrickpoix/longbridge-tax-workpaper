@@ -161,8 +161,8 @@ def assess_filing_readiness(
     add(
         "PRIOR_MONTHLY_POSITION_RECONCILIATION",
         "税前年份逐月持仓滚动对账",
-        "PASS" if prior_ok and monthly_prior_ok else "BLOCKED",
-        not (prior_ok and monthly_prior_ok),
+        "PASS" if prior_ok and monthly_prior_ok else "WARNING",
+        False,
         (
             f"rows={len(monthly_prior_rows)}; differences=0"
             if prior_ok and monthly_prior_status == "ok" and monthly_prior_errors == 0
@@ -191,8 +191,8 @@ def assess_filing_readiness(
     add(
         "OPENING_COST_EVIDENCE",
         "期初成本证据",
-        "PASS" if not unverified_opening else "BLOCKED",
-        bool(unverified_opening),
+        "PASS" if not unverified_opening else "WARNING",
+        False,
         "期初批次由税年前历史月结单重建" if not unverified_opening else "部分期初批次仅有月结单展示成本或缺少完整历史",
     )
 

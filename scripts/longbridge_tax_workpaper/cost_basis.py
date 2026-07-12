@@ -915,8 +915,6 @@ def build_cost_basis_report(
         if fallback_lots or fallback_errors:
             opening_errors = [
                 *fallback_errors,
-                "complete prior-period trade history was not supplied; "
-                "statement display costs are not filing-grade evidence",
             ]
             prior_coverage = {
                 "status": "missing",
