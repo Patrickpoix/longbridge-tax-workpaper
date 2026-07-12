@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="从长桥证券月结单PDF生成中国内地税务工作底稿"
     )
-    parser.add_argument("input_dir", nargs="?", help="包含月结单PDF的目录")
+    parser.add_argument("input_dir", nargs="?", help="包含月结单PDF的目录（递归扫描子目录中所有 *.pdf）")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--output-dir", default="outputs", help="输出目录")
     parser.add_argument(
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--fx",
         action="append",
         default=[],
-        help="年末人民币中间价，例如 --fx USD=7.0288 --fx HKD=0.90322",
+        help="年末人民币汇率中间价：1 USD = ? CNY，精确到4位小数。例如 --fx USD=7.0288 --fx HKD=0.90322（也支持 --fx-source-date 记录来源日期）",
     )
     parser.add_argument(
         "--fx-source",
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--fx-source-date",
         action="append",
         default=[],
-        help="可选汇率来源日期，例如 --fx-source-date USD=2025-12-31",
+        help="可选汇率来源日期，例如 --fx-source-date USD=2025-12-31（会自动记录到Excel汇率工作表中）",
     )
     parser.add_argument(
         "--fx-evidence-sha256",
@@ -182,16 +182,16 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     out_raw = input("\n输出目录（默认 outputs）:\n> ").strip().strip('"').strip("'")
     output_dir = out_raw or "outputs"
 
-    # 5. 汇率
+    # 5. 汇率（1外币=?人民币，精确到4位小数）
     fx_args: list[str] = []
-    usd = input("\nUSD/CNY 年末汇率（例如 7.0288，回车跳过）:\n> ").strip()
+    usd = input("\nUSD/CNY 年末汇率（1 USD = ? CNY，例如 7.0288，回车跳过）:\n> ").strip()
     if usd:
         try:
             Decimal(usd)
             fx_args.append("--fx=USD=" + usd)
         except InvalidOperation:
             print(f"警告：忽略无效USD汇率 '{usd}'")
-    hkd = input("\nHKD/CNY 年末汇率（例如 0.90322，回车跳过）:\n> ").strip()
+    hkd = input("\nHKD/CNY 年末汇率（1 HKD = ? CNY，例如 0.90322，回车跳过）:\n> ").strip()
     if hkd:
         try:
             Decimal(hkd)
