@@ -18,5 +18,6 @@ review_run_outputs/
 *.pdf
 *.xlsx
 *.xls
+*.csv
 *.zip
 .env
