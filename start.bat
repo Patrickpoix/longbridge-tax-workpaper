@@ -46,23 +46,45 @@ if errorlevel 1 (
 
 echo [3/3] 启动...
 echo.
-echo 提示：程序已进入交互式引导模式，请按提示操作。
-echo 月结单目录可直接拖入窗口，无需手动输入完整路径。
+echo ============================================
+echo  税务口径选择
+echo ============================================
 echo.
-python -m longbridge_tax_workpaper
+echo 提示：程序默认采用保守口径。
+echo 如需调整，请在启动后使用下列参数：
+echo   --cost-basis-method {FIFO,MOVING_AVERAGE,BOTH}
+echo   --withholding-credit
+echo   --deduct-margin-interest
+echo.
+echo 月结单目录可直接拖入窗口。
+echo.
+python -m longbridge_tax_workpaper %*
 
 if errorlevel 1 (
     echo.
     echo 处理失败。可能是以下原因：
     echo   - 目录中没有有效的月结单 PDF
-    echo   - PDF 密码错误
+    echo   - PDF 密码错误（使用 LONGBRIDGE_PDF_PASSWORD 环境变量）
     echo   - 缺少依赖
     echo.
     echo 详情请查看上方错误信息。
+    echo.
+    echo 命令行示例：
+    echo   set LONGBRIDGE_PDF_PASSWORD=密码
+    echo   start.bat 月结单目录 --fx USD=7.19 --fx HKD=0.92
+    echo   start.bat 月结单目录 --cost-basis-method FIFO --withholding-credit
 ) else (
     echo.
-    echo 处理完成！
-    echo 输出文件在 outputs 文件夹中，请查看。
+    echo ============================================
+    echo  处理完成！
+    echo ============================================
+    echo 输出文件在 outputs 文件夹中：
+    echo   - longbridge_年度_processed_results.xlsx
+    echo   - longbridge_年度_workpapers.zip
+    echo   - review_status_年度.json
+    echo.
+    echo 税务口径提示：默认采用保守计算（不抵免、不扣除）。
+    echo 如需调整请重新运行并添加对应参数。
 )
 
 echo.

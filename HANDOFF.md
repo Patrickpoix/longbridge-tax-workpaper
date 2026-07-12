@@ -1,6 +1,6 @@
 # Longbridge Tax Workpaper Skill — 项目交接文档 (HANDOFF)
 
-> 最后更新：2026-07-12 | 版本：v0.4.1 | 测试：46/46 ✅
+> 最后更新：2026-07-12 | 版本：v1.0.0 | 测试：67/67 ✅
 
 ---
 
@@ -21,23 +21,25 @@
 |------|------|------|
 | **基础版** | 最初 GitHub 版本，基础解析 + 成本引擎 | 已归档 |
 | **skill(2)** | ChatGPT 修改版，增加精度、哈希、后处理等 | 已归档 |
-| **skillv3 (v0.4.1) ← 当前** | 最终版，积累全部改进，CI/CD 就绪 | **活动版本** |
+| **skillv3 (v0.4.1)** | 积累全部改进，CI/CD 就绪 | 已归档 |
+| **V4 (v1.0.0) ← 当前** | Decimal精度管线、cost_basis拆分、CLI口径参数、代码质量全面增强 | **活动版本** |
 
-### skillv3 相对 skill(2) 的主要增强
+### V4 (v1.0.0) 相对 skillv3 的主要增强
 
-1. **OCR 后备** — 内嵌字体损坏/乱码时自动调用 PaddleOCR
-2. **版式能力锚点** — 别名元组，不按年份写死（2026+ 自动适配）
-3. **模板签名评分** — 低分月份进入复核状态
-4. **汇率源元数据** — 支持 `fx-source-date` / `fx-evidence-sha256`
-5. **money.py** — `Decimal` + `ROUND_HALF_UP` 精度模块
-6. **release_hygiene.py** — 发布前隐私扫描
-7. **CI 增强** — GitHub Actions 自动测试 + 构建 + 释放校验
-8. **交互式引导模式** — 无参数时自动进入中文交互引导
-9. **start.bat** — Windows 一键启动
+1. **Decimal 精度管线** — FX 汇率全程 `Decimal` 字符串存储，消除 `float` 精度丢失
+2. **交互模式输入验证** — 目录存在检查、年度范围校验、汇率格式验证
+3. **全局序列 ID** — `_next_seq()` 全局递增计数器，消除跨事件序列碰撞
+4. **版式识别增强** — 增加繁体别名、持仓区段检测，提升不同月份 PDF 的兼容性
+5. **`cost_basis.py` 重构为 4 模块** — `security.py`、`cost_basis_models.py`、`cost_basis_engine.py`、`cost_basis.py`
+6. **`_auto_ex_events` 修复** — 修正 quantity 来源、net cash_effect、warrant 分类
+7. **CLI 口径选择参数** — `--cost-basis-method`、`--withholding-credit`、`--deduct-margin-interest`
+8. **`lru_cache` 修复** — 手动路径键缓存消除环境变量缓存失效
+9. **代码质量** — serialization 性能优化、21 个新测试用例、统一容差常量
+10. **`classify_tax_category` 全覆盖测试** — 14 个分支 + 辅助函数测试
 
 ---
 
-## 三、项目结构
+## 三、项目结构（同 skillv3）
 
 ```
 longbridge-tax-workpaper/
@@ -59,7 +61,7 @@ longbridge-tax-workpaper/
 │   ├── validate_release.py          # 发布前校验脚本
 │   │
 │   └── longbridge_tax_workpaper/    # ← 核心源码包
-│       ├── __init__.py              # __version__ = "0.4.1"
+│       ├── __init__.py              # __version__ = "1.0.0"
 │       ├── __main__.py              # python -m 入口
 │       ├── cli.py                   # CLI 解析 + 交互式引导
 │       ├── runner.py                # 主流程编排
@@ -289,7 +291,7 @@ python scripts/run_workpaper.py 月结单目录 --output-dir outputs
 
 ## 六、测试状态
 
-**当前：46/46 通过 ✅**（2026-07-12 验证）
+**当前：67/67 通过 ✅**（2026-07-12 验证）
 
 | 测试文件 | 重点覆盖 |
 |----------|----------|
@@ -458,7 +460,7 @@ python -m longbridge_tax_workpaper tests/fixtures --output-dir outputs --fx USD=
 2. **阅读 SKILL.md**（供 AI 消费的元数据和工作流）
 3. **阅读 README.md**（用户文档）
 4. **阅读 `references/tax-boundaries.md`**（税务边界声明，输出结论前必读）
-5. **运行 `pytest -q`** 确认 46/46 通过
+5. **运行 `pytest -q`** 确认 67/67 通过
 6. **运行 `python scripts/validate_release.py .`** 确认无隐私泄露
 
 ### 关键变量

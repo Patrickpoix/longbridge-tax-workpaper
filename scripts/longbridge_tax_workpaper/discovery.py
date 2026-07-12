@@ -27,9 +27,16 @@ def find_pdfs(input_dir: str | Path, *, exclude_roots: Iterable[str | Path] = ()
             continue
         if any(_inside(path, ex) for ex in excluded):
             continue
-        if any(part in {".git", "__pycache__"} for part in path.parts):
+        if any(part in {".git", "__pycache__", ".agents", ".vendor", ".pytest_cache"} for part in path.parts):
             continue
         if any(part.startswith("longbridge_") and (part.endswith("_workpapers") or part.endswith("_processed_delivery")) for part in path.parts):
+            continue
+        # Exclude common backup/temp directories that may contain PDF copies
+        if any(
+            part.startswith(prefix)
+            for part in path.parts
+            for prefix in ("audit_chatgpt_delivery_", "full_system_fix_", "skill-review", "outputs")
+        ):
             continue
         candidates.append(path)
     unique: dict[str, Path] = {}

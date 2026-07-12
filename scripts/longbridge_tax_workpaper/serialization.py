@@ -37,11 +37,11 @@ def section_rows(statements: Iterable[StatementResult], section_name: str) -> li
 def write_csv(path: str | Path, rows: list[dict[str, object]]) -> Path:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    headers: list[str] = []
+    # Use dict.fromkeys to collect unique headers in insertion order (O(rows × 1))
+    seen: dict[str, None] = {}
     for row in rows:
-        for key in row:
-            if key not in headers:
-                headers.append(key)
+        seen.update(dict.fromkeys(row))
+    headers = list(seen)
     with target.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=headers)
         writer.writeheader()

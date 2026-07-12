@@ -49,9 +49,9 @@ def _security_id_from_code(code: str) -> str:
     return code
 
 
-def _converted(value: Decimal, currency: str) -> tuple[Decimal | None, float | None]:
+def _converted(value: Decimal, currency: str) -> tuple[Decimal | None, Decimal | None]:
     rate = year_end_fx_rate(currency) if currency in {"HKD", "USD"} else None
-    return (q_cny(value * decimal_value(rate)) if rate is not None else None, rate)
+    return (q_cny(value * rate) if rate is not None else None, rate)
 
 
 def build_dividend_tax_basis_rows(statements: Iterable[StatementResult]) -> list[dict[str, object]]:
@@ -87,7 +87,7 @@ def build_dividend_tax_basis_rows(statements: Iterable[StatementResult]) -> list
             embedded_tax_cny: Decimal | None = None
             net_cny: Decimal | None = None
             filing_cny: Decimal | None = None
-            fx_rate: float | None = None
+            fx_rate: Decimal | None = None
             basis = "year_end_fx_cash_dividend"
             if embedded:
                 per_share_rmb = decimal_value(rmb_match.group(1), default=Decimal("0")) or Decimal("0")
