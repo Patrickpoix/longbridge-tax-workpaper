@@ -881,6 +881,49 @@ def _summary_rows(
     return rows
 
 
+# ---- Per-security prior-data analysis ------------------------------------
+
+def _securities_needing_prior_data(
+    statements: list[StatementResult],
+) -> dict[str, list[str]]:
+    """Identify which securities need prior-period trade history.
+
+    Returns { "needs_prior": [sec_ids], "has_buys": [sec_ids] }
+    """
+    from collections import Counter
+
+    # 1. Get all BUY events in current year
+    buys: set[str] = set()
+    for stmt in statements:
+        for sec_name in ("stock_trades", "option_trades"):
+            sec = stmt.sections.get(sec_name, SectionResult(name=sec_name))
+            for row in sec.rows:
+                side = str(_value(row, "side") or "")
+                if side != "BUY":
+                    continue
+                symbol = norm_text(_value(row, "symbol"))
+                sid = canonical_security_id(symbol)
+                if sid:
+                    buys.add(sid)
+
+    # 2. Get holdings with opening_position > 0 from first statement
+    holdings_with_pos: set[str] = set()
+    if statements:
+        first = statements[0]
+        holdings = first.sections.get("holdings", SectionResult(name="holdings"))
+        for row in holdings.rows:
+            qty = float(_value(row, "opening_position") or 0.0)
+            if qty > EPS:
+                symbol = norm_text(_value(row, "name"))
+                sid = canonical_security_id(symbol)
+                if sid:
+                    holdings_with_pos.add(sid)
+
+    needs_prior = sorted(holdings_with_pos - buys)
+    has_buys = sorted(buys)
+    return {"needs_prior": needs_prior, "has_buys": has_buys}
+
+
 # ---- Main entry point -----------------------------------------------------
 
 def build_cost_basis_report(
@@ -895,6 +938,25 @@ def build_cost_basis_report(
         list(prior_statements), key=lambda item: item.statement_month
     )
     tax_year = int(statements_list[0].statement_month[:4]) if statements_list and statements_list[0].statement_month[:4].isdigit() else 0
+
+    # Per-security analysis: which securities actually need prior data
+    sec_analysis = _securities_needing_prior_data(statements_list)
+    needs_prior = set(sec_analysis["needs_prior"])
+    has_buys = set(sec_analysis["has_buys"])
+
+    # Check which needed securities are covered by prior data
+    covered: set[str] = set()
+    uncovered: set[str] = set(needs_prior)
+    prior_trade_sids: set[str] = set()
+    if prior_list and needs_prior:
+        for stmt in prior_list:
+            for row in _find_trade_rows(stmt):
+                prior_trade_sids.add(row.security_id)
+            for row in _auto_ex_events([stmt]):
+                prior_trade_sids.add(row.security_id)
+        covered = needs_prior & prior_trade_sids
+        uncovered = needs_prior - prior_trade_sids
+
     if prior_list:
         fifo_opening, moving_opening, opening_rows, opening_errors, prior_coverage = (
             _prior_period_opening_lots(prior_list, tax_year=tax_year)
@@ -917,7 +979,7 @@ def build_cost_basis_report(
                 *fallback_errors,
             ]
             prior_coverage = {
-                "status": "missing",
+                "status": "missing" if uncovered else "ok",
                 "actual_months": [],
                 "expected_months": [],
             }
@@ -933,6 +995,11 @@ def build_cost_basis_report(
                 "note": "No positive opening inventory required prior-period "
                         "cost reconstruction.",
             }
+
+    # Add per-security fields to prior_coverage
+    prior_coverage["securities_needing_prior"] = sorted(needs_prior)
+    prior_coverage["securities_covered_by_prior"] = sorted(covered)
+    prior_coverage["securities_uncovered"] = sorted(uncovered)
     events = build_cost_basis_events(statements_list)
     fifo = run_fifo(fifo_opening, events)
     moving = run_moving_average(moving_opening, events)
