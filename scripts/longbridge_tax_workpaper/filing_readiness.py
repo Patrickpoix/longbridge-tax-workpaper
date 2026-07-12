@@ -147,12 +147,25 @@ def assess_filing_readiness(
 
     prior_coverage = report.get("prior_period_coverage", {}) if isinstance(report, dict) else {}
     prior_ok = prior_coverage.get("status") == "ok"
+    uncovered = list(prior_coverage.get("securities_uncovered") or [])
+    needs_prior = list(prior_coverage.get("securities_needing_prior") or [])
+    covered = list(prior_coverage.get("securities_covered_by_prior") or [])
+    
+    if uncovered:
+        detail = f"缺少前期交易记录的标的: {', '.join(uncovered)}；相关期初成本使用券商展示成本"
+    elif needs_prior and not uncovered:
+        detail = f"需追溯的标的({len(needs_prior)})均已由前期月结单覆盖: {', '.join(needs_prior)}"
+    elif not needs_prior:
+        detail = "所有持仓标的都有年度内的买入记录，无需追溯前期数据"
+    else:
+        detail = f"actual={prior_coverage.get('actual_months')}; expected={prior_coverage.get('expected_months')}"
+    
     add(
         "PRIOR_PERIOD_COVERAGE",
         "期初成本历史覆盖",
-        "PASS" if prior_ok else "WARNING",
+        "PASS" if not uncovered else "WARNING",
         False,
-        f"actual={prior_coverage.get('actual_months')}; expected={prior_coverage.get('expected_months')}; events={prior_coverage.get('event_count')}",
+        detail,
     )
     monthly_prior_errors = int(prior_coverage.get("monthly_reconciliation_error_count") or 0)
     monthly_prior_rows = list(prior_coverage.get("monthly_reconciliation") or [])
@@ -188,12 +201,24 @@ def assess_filing_readiness(
         bool(invalid_opening),
         "期初成本均为正" if not invalid_opening else f"invalid={[(row.get('method'), row.get('security_id')) for row in invalid_opening]}",
     )
+    # Only flag uncovered securities (need prior data but don't have it)
+    if uncovered:
+        evidence_status = "WARNING"
+        evidence_detail = f"以下标的缺少前期交易记录，使用券商展示成本: {', '.join(uncovered[:5])}"
+        if len(uncovered) > 5:
+            evidence_detail += f" 等 {len(uncovered)} 个"
+    elif unverified_opening:
+        evidence_status = "WARNING"
+        evidence_detail = "部分期初批次仅有月结单展示成本或缺少完整历史"
+    else:
+        evidence_status = "PASS"
+        evidence_detail = "期初批次由历史月结单交易记录重建"
     add(
         "OPENING_COST_EVIDENCE",
         "期初成本证据",
-        "PASS" if not unverified_opening else "WARNING",
+        evidence_status,
         False,
-        "期初批次由税年前历史月结单重建" if not unverified_opening else "部分期初批次仅有月结单展示成本或缺少完整历史",
+        evidence_detail,
     )
 
     method = profile.get("cost_basis_method", {})
