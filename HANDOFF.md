@@ -105,7 +105,7 @@ longbridge-tax-workpaper/
 │           └── ocr/                 # OCR 后备提取
 │               └── __init__.py
 │
-├── tests/                           # 测试套件 (46 个测试)
+├── tests/                           # 测试套件 (67 个测试)
 │   ├── conftest.py
 │   ├── test_cli.py                  # CLI 测试
 │   ├── test_config.py               # 配置测试
