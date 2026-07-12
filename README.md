@@ -37,19 +37,23 @@ flowchart LR
   D --> G[复核状态 JSON]
 ```
 
-## Quick Start (3 steps)
+## 快速开始（三步）
 
 ### Windows
-1. Double-click start.bat
-2. Follow prompts for PDF folder and password
-3. Check outputs/ folder for results
+1. 双击 `start.bat`
+2. 按提示输入月结单目录和密码
+3. 查看 `outputs/` 文件夹中的结果
 
-### Command Line
+### 命令行安装运行
+```bash
 pip install .
 python -m longbridge_tax_workpaper <pdf-dir> --output-dir outputs --tax-year 2025 --fx USD=7.0288 --fx HKD=0.90322
+```
 
-### Direct run (no install)
+### 直接运行（无需安装）
+```bash
 python scripts/run_workpaper.py <pdf-dir> --output-dir outputs --tax-year 2025
+```
 ## 环境要求
 
 - Python 3.11、3.12 或 3.13；
