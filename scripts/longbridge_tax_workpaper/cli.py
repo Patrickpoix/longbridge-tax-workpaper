@@ -9,6 +9,10 @@ from typing import Any
 
 from . import __version__
 from .runner import run_workpaper
+from .discovery import find_pdfs, parse_pdf_set, split_account_and_year
+from .postprocess import resolve_cross_month_statement_context
+from .cost_basis import _securities_needing_prior_data
+from .pipeline import parse_statement
 
 
 def _key_value_pairs(values: list[str], *, label: str) -> dict[str, str]:
@@ -217,25 +221,84 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     print()
     print("--- 成本计算方法选择 ---")
     print("  MOVING_AVERAGE (默认): 使用券商展示成本（移动平均），无需前期月结单")
-    print("  FIFO              : 先进先出法 ⚠ 需提供纳税年前的所有月结单")
-    print("  BOTH              : 并列输出两种方法 ⚠ 需提供纳税年前的所有月结单")
+    print("  FIFO              : 先进先出法 ⚠ 需提供纳税年度前买入月份的月结单")
+    print("  BOTH              : 并列输出两种方法 ⚠ 需提供纳税年度前买入月份的月结单")
     print()
     while True:
         cbm_raw = input("请选择（回车默认 MOVING_AVERAGE，或输入 FIFO / BOTH / MA）:\n> ").strip().upper()
         if not cbm_raw or cbm_raw in ("MA", "MOVING_AVERAGE"):
-            # MOVING_AVERAGE: no warning needed
             print("  已选择：MOVING_AVERAGE（券商展示成本）")
+            fx_args.append("--cost-basis-method=MOVING_AVERAGE")
             break
         elif cbm_raw in ("FIFO", "BOTH"):
             label = "FIFO" if cbm_raw == "FIFO" else "BOTH（含 FIFO）"
             print()
-            print(f"  ⚠ {label} 需要追溯年初持仓标的的原始买入记录。")
+            print(f"  ⚠ {label} 需提供纳税年度前的月结单来追溯 FIFO 成本。")
             print()
-            print(f"  例如：某只港股 2025 年初有持仓但全年无买入记录且发生卖出，")
-            print(f"  则需要提供该标的买入当月起的历史月结单来重建 FIFO 成本。")
-            print(f"  如果未提供，系统将使用券商展示成本（移动平均）替代。")
+
+            # Pre-scan: find securities needing prior data
+            print("  正在扫描 PDF，分析持仓情况...")
+            pwd = os.e*******get("LONGBRIDGE_PDF_PASSWORD", "")
+            try:
+                pdfs = find_pdfs(input_dir)
+                stmts_all = resolve_cross_month_statement_context(
+                    parse_pdf_set(pdfs, password=[redacted], enable_ocr=("--disable-ocr" not in fx_args))
+                )
+                _, _, stmts, _ = split_account_and_year(stmts_all, tax_year=tax_year)
+                sec_info = _securities_needing_prior_data(stmts)
+            except Exception as exc:
+                print(f"  ⚠ 扫描异常: {exc}")
+                sec_info = {"needs_prior": [], "has_buys": []}
+
+            if sec_info.get("needs_prior"):
+                print()
+                print(f"  ⚠ 以下标的年初有持仓但本年度无买入记录：")
+                for sid in sec_info["needs_prior"]:
+                    print(f"     - {sid}")
+
+                print()
+                print("  如需计算这些标的的 FIFO 成本，请补充买入记录。")
+                print("  如只需 MOVING_AVERAGE，直接回车跳过即可。")
+
+                # 二次目录输入
+                extra_dirs = input("\n  请输入补充目录路径（可直接拖入，多个用 ; 分隔，回车跳过）:\n  > ").strip()
+                extra_pdfs: list[Any] = []
+                if extra_dirs:
+                    for d in extra_dirs.split(";"):
+                        d = d.strip().strip('"').strip("'")
+                        if os.path.isdir(d):
+                            extra_pdfs.extend(str(p) for p in find_pdfs(d))
+                    if extra_pdfs:
+                        print(f"  已找到 {len(extra_pdfs)} 份补充月结单，重新扫描...")
+                        try:
+                            all_pdfs = list(pdfs) + [Path(p) for p in extra_pdfs]
+                            from pathlib import Path
+                            stmts_all2 = resolve_cross_month_statement_context(
+                                parse_pdf_set(sorted(all_pdfs, key=lambda p: p.name), password=[redacted], enable_ocr=("--disable-ocr" not in fx_args))
+                            )
+                            _, _, stmts2, _ = split_account_and_year(stmts_all2, tax_year=tax_year)
+                            sec_info2 = _securities_needing_prior_data(stmts2)
+                            if not sec_info2.get("needs_prior"):
+                                print(f"  ✓ 所有标的已可追溯 FIFO 成本！")
+                            else:
+                                still_missing = set(sec_info2["needs_prior"])
+                                print(f"  补充后仍有 {len(still_missing)} 个标的缺少买入记录")
+                            input_dir = input_dir + ";" + extra_dirs
+                        except Exception as e:
+                            print(f"  重新扫描异常: {e}")
+
+                # 询问首次买入月份或开户日期
+                buy_months = input("\n  你知道首次买入月份吗？（格式 标的=年月，多个以逗号分隔，回车跳过）:\n  > ").strip()
+                if buy_months:
+                    print(f"  已记录。")
+                open_month = input("  或者输入开户年月推算（如 202303，回车跳过）:\n  > ").strip()
+                if open_month:
+                    print(f"  需补充 {open_month} 起月结单。")
+            else:
+                print("  ✓ 所有标的均有买入记录，无需历史数据。")
+
             print()
-            confirm = input("  确认选择？按 Enter 确认，输入 back 重新选择:\n> ").strip().lower()
+            confirm = input(f"  确认选择 {label}？按 Enter 确认，输入 back 重新选择:\n  > ").strip().lower()
             if confirm == "back":
                 print("  已取消，请重新选择。")
                 continue
