@@ -139,9 +139,15 @@ python -m longbridge_tax_workpaper 月结单目录 --output-dir outputs ...
 
 ### 税务口径选择（v1.0.0 新增）
 
-默认采用保守口径，可通过以下参数显式选择：
+默认采用保守口径（BOTH，并列输出），可通过以下参数显式选择：
 
 ```bash
+# 使用券商展示成本（移动平均），无需前期月结单
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --cost-basis-method MOVING_AVERAGE
+
+# FIFO 先进先出（更准确，需提供纳税年前的月结单重建期初成本）
+longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --cost-basis-method FIFO
+
 # 只输出 FIFO 方法（默认 BOTH 并列输出）
 longbridge-tax-workpaper 月结单目录 --fx USD=7.19 --cost-basis-method FIFO
 
