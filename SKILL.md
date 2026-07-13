@@ -33,7 +33,10 @@ longbridge-tax-workpaper <pdf-directory> \
   --fx-source USD=<official-url> \
   --fx-source HKD=<official-url> \
   --fx-source-date USD=<YYYY-12-31> \
-  --fx-source-date HKD=<YYYY-12-31>
+  --fx-source-date HKD=<YYYY-12-31> \
+  --cost-basis-method MOVING_AVERAGE \
+  --withholding-credit \
+  --deduct-margin-interest
 ```
 
 ### Windows one-click
