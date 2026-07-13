@@ -242,7 +242,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
             try:
                 pdfs = find_pdfs(input_dir)
                 stmts_all = resolve_cross_month_statement_context(
-                    parse_pdf_set(pdfs, password=[redacted], enable_ocr=("--disable-ocr" not in fx_args))
+                    parse_pdf_set(pdfs, password=pwd, enable_ocr=("--disable-ocr" not in fx_args))
                 )
                 _, _, stmts, _ = split_account_and_year(stmts_all, tax_year=tax_year)
                 sec_info = _securities_needing_prior_data(stmts)
@@ -274,7 +274,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
                             all_pdfs = list(pdfs) + [Path(p) for p in extra_pdfs]
                             from pathlib import Path
                             stmts_all2 = resolve_cross_month_statement_context(
-                                parse_pdf_set(sorted(all_pdfs, key=lambda p: p.name), password=[redacted], enable_ocr=("--disable-ocr" not in fx_args))
+                                parse_pdf_set(sorted(all_pdfs, key=lambda p: p.name), password=pwd, enable_ocr=("--disable-ocr" not in fx_args))
                             )
                             _, _, stmts2, _ = split_account_and_year(stmts_all2, tax_year=tax_year)
                             sec_info2 = _securities_needing_prior_data(stmts2)
