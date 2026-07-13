@@ -238,7 +238,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
 
             # Pre-scan: find securities needing prior data
             print("  正在扫描 PDF，分析持仓情况...")
-            pwd = os.e*******get("LONGBRIDGE_PDF_PASSWORD", "")
+            pwd = os.environ.get("LONGBRIDGE_PDF_PASSWORD", "")
             try:
                 pdfs = find_pdfs(input_dir)
                 stmts_all = resolve_cross_month_statement_context(
