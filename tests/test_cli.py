@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -24,9 +25,8 @@ def test_module_help_runs_without_private_excel_runtime():
 def test_console_entrypoint_help_runs_after_install():
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
-    executable = Path(sys.executable).with_name("longbridge-tax-workpaper")
-    if sys.platform == "win32":
-        executable = executable.with_suffix(".exe")
-    result = subprocess.run([str(executable), "--help"], env=env, text=True, capture_output=True)
+    executable = shutil.which("longbridge-tax-workpaper")
+    assert executable is not None, "longbridge-tax-workpaper not found on PATH"
+    result = subprocess.run([executable, "--help"], env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert "--tax-year" in result.stdout
