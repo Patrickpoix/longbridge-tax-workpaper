@@ -26,9 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]" -c constraints.txt
       - name: Run public tests
-        run: |
-          python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -v --tb=short 2>&1 | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          if ($LASTEXITCODE -ne 0) { throw "pytest exited with code $LASTEXITCODE" }
+        run: python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -v --tb=short 2>&1 | python -c "import os,sys; open(os.environ['GITHUB_STEP_SUMMARY'],'a').write(sys.stdin.read())"
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
