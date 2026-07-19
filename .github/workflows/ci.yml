@@ -26,7 +26,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]" -c constraints.txt
       - name: Run public tests
-        run: python -m pytest --cov=longbridge_tax_workpaper --cov-report=term -v --tb=short
+        run: |
+          python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -v --tb=short 2>&1; if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
+      - name: Debug - run tests per file (Windows)
+        if: runner.os == 'Windows' && failure()
+        run: |
+          $summary = [System.IO.Path]::GetTempFileName()
+          "## Test Results per File" | Add-Content $summary
+          Get-ChildItem tests/*.py | ForEach-Object {
+            $file = $_.Name
+            $output = python -m pytest "tests/$file" -v --tb=short 2>&1
+            $ok = $LASTEXITCODE -eq 0
+            "$file $(if ($ok) { 'PASS' } else { 'FAIL' })" | Add-Content $summary
+            $output | Add-Content $summary
+          }
+          Get-Content $summary | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
