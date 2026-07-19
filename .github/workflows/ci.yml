@@ -26,21 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]" -c constraints.txt
       - name: Run public tests
-        run: |
-          python -c "
-import subprocess, sys, os
-r = subprocess.run([sys.executable, '-m', 'pytest', '--cov=longbridge_tax_workpaper',
-    '--cov-report=term', '--cov-fail-under=77', '-v', '--tb=long'],
-    capture_output=True, text=True)
-out = r.stdout + r.stderr
-sf = os.environ.get('GITHUB_STEP_SUMMARY')
-if sf:
-    with open(sf, 'a', encoding='utf-8') as f:
-        f.write('## Pytest Output\n\n```\n' + out + '\n```\n')
-sys.stdout.write(r.stdout)
-sys.stderr.write(r.stderr)
-sys.exit(r.returncode)
-"
+        run: python -c "import subprocess, sys, os; r = subprocess.run([sys.executable, '-m', 'pytest', '--cov=longbridge_tax_workpaper', '--cov-report=term', '--cov-fail-under=77', '-v', '--tb=long'], capture_output=True, text=True); out = r.stdout + r.stderr; sf = os.environ.get('GITHUB_STEP_SUMMARY'); f = sf and open(sf, 'a', encoding='utf-8'); f and f.write(out); f and f.close(); print(out, end=''); sys.exit(r.returncode)"
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
