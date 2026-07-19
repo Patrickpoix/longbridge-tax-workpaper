@@ -27,18 +27,6 @@ jobs:
           python -m pip install -e ".[dev]" -c constraints.txt
       - name: Run public tests
         run: python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -q
-      - name: Debug per-file (Windows)
-        if: runner.os == 'Windows' && failure()
-        shell: pwsh
-        run: |
-          echo "## Test Results per File" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-          Get-ChildItem tests\*.py | ForEach-Object {
-            $file = $_.Name
-            $output = python -m pytest tests/$file -v --tb=long 2>&1 | Out-String
-            $ok = $LASTEXITCODE -eq 0
-            "$file : $(if ($ok) { 'PASS' } else { 'FAIL' })" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-            if (-not $ok) { $output | Out-File -Append $env:GITHUB_STEP_SUMMARY }
-          }
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
