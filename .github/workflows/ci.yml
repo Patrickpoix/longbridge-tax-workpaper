@@ -26,21 +26,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]" -c constraints.txt
       - name: Run public tests
-        run: |
-          python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -v --tb=short 2>&1; if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
-      - name: Debug - run tests per file (Windows)
+        run: python -m pytest --cov=longbridge_tax_workpaper --cov-report=term --cov-fail-under=77 -q
+      - name: Debug per-file (Windows)
         if: runner.os == 'Windows' && failure()
+        shell: pwsh
         run: |
-          $summary = [System.IO.Path]::GetTempFileName()
-          "## Test Results per File" | Add-Content $summary
-          Get-ChildItem tests/*.py | ForEach-Object {
+          echo "## Test Results per File" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem tests\*.py | ForEach-Object {
             $file = $_.Name
-            $output = python -m pytest "tests/$file" -v --tb=short 2>&1
+            $output = python -m pytest tests/$file -v --tb=long 2>&1 | Out-String
             $ok = $LASTEXITCODE -eq 0
-            "$file $(if ($ok) { 'PASS' } else { 'FAIL' })" | Add-Content $summary
-            $output | Add-Content $summary
+            "$file : $(if ($ok) { 'PASS' } else { 'FAIL' })" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            if (-not $ok) { $output | Out-File -Append $env:GITHUB_STEP_SUMMARY }
           }
-          Get-Content $summary | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
