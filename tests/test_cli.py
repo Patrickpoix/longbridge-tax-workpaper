@@ -25,8 +25,16 @@ def test_module_help_runs_without_private_excel_runtime():
 def test_console_entrypoint_help_runs_after_install():
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
+
+    # Prefer PATH lookup, but fall back to Scripts/ on Windows
     executable = shutil.which("longbridge-tax-workpaper")
-    assert executable is not None, "longbridge-tax-workpaper not found on PATH"
+    if executable is None and sys.platform == "win32":
+        scripts = Path(sys.executable).parent / "Scripts"
+        candidate = scripts / "longbridge-tax-workpaper.exe"
+        if candidate.is_file():
+            executable = str(candidate)
+
+    assert executable is not None, "longbridge-tax-workpaper not found on PATH or in Scripts/"
     result = subprocess.run([executable, "--help"], env=env, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert "--tax-year" in result.stdout
