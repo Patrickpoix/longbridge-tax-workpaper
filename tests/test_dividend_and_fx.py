@@ -61,6 +61,28 @@ def test_direct_us_withholding_and_no_double_consumption(tmp_path: Path):
     assert rows[0]["automatic_credit_cny"] == 0.0
 
 
+def test_requested_statement_credit_is_applied_and_capped_at_china_tax(tmp_path: Path):
+    st = StatementResult("202501", "sample.pdf")
+    st.sections["other_fund_flows"] = SectionResult("other_fund_flows", rows=[
+        {"tax_category": fv("dividend_income"), "raw_detail": fv("#AVGO.US Cash Dividend"), "currency": fv("USD"), "cash_amount": fv(1), "date": fv("2025.01.15")},
+        {"tax_category": fv("withholding_tax"), "raw_detail": fv("#AVGO.US Withholding Tax"), "currency": fv("USD"), "cash_amount": fv(-1), "date": fv("2025.01.15")},
+    ])
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2025,
+        account_opening_month="202501",
+        fx_rates={"USD": 7, "HKD": 0.9},
+        withholding_credit=True,
+    )
+    with runtime_config_environment(paths):
+        row = build_dividend_tax_basis_rows([st])[0]
+    assert row["statement_withholding_credit_candidate_cny"] == 7.0
+    assert row["china_tax_before_credit_cny"] == 1.4
+    assert row["automatic_credit_cny"] == 1.4
+    assert row["statement_withholding_credit_applied_cny"] == 1.4
+    assert row["china_tax_after_automatic_credit_cny"] == 0.0
+
+
 def test_missing_fx_marks_dividend_and_workbook_incomplete(tmp_path: Path):
     statements = [StatementResult(f"2025{m:02d}", f"{m}.pdf") for m in range(1, 13)]
     statements[0].sections["other_fund_flows"] = dividend_statement("#AVGO.US Cash Dividend", amount=9, currency="USD").sections["other_fund_flows"]

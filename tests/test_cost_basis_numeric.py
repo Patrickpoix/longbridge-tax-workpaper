@@ -159,3 +159,66 @@ def test_negative_broker_display_cost_is_never_used_as_opening_tax_basis(tmp_pat
     assert report["opening_lots"] == []
     assert report["ready"] is False
     assert any("non-positive" in error for error in report["errors"])
+
+
+def test_opening_inventory_needs_fifo_history_even_with_current_year_buy(tmp_path: Path):
+    current = statement(
+        "202501",
+        trades=[trade(date="2025.01.05", order="B1", side="BUY", qty=5, amount=50, total=-51)],
+        holdings=[holding(opening=10, ending=15)],
+    )
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2025,
+        account_opening_month="202501",
+        fx_rates={"USD": 7.0, "HKD": 0.9},
+    )
+    with runtime_config_environment(paths):
+        report = build_cost_basis_report([current], [])
+    assert report["prior_period_coverage"]["securities_needing_prior"] == ["HK:01288"]
+    assert any("prior-period transaction history required" in error for error in report["method_errors"]["FIFO"])
+    assert report["method_errors"]["MOVING_AVERAGE"] == []
+
+
+def test_fifo_history_gap_is_method_specific_and_moving_average_remains_usable(tmp_path: Path):
+    current = statement(
+        "202501",
+        trades=[trade(date="2025.01.10", order="S1", side="SELL", qty=5, amount=100, total=99)],
+        holdings=[holding(opening=10, ending=5)],
+    )
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2025,
+        account_opening_month="202501",
+        fx_rates={"USD": 7.0, "HKD": 0.9},
+    )
+    with runtime_config_environment(paths):
+        report = build_cost_basis_report([current], [])
+    assert any("prior-period transaction history required" in error for error in report["method_errors"]["FIFO"])
+    assert report["method_errors"]["MOVING_AVERAGE"] == []
+    assert report["moving_average"].disposals[0]["validation_status"] == "ok"
+
+
+def test_moving_average_match_detail_uses_quantity_and_cost_fields(tmp_path: Path):
+    current = statement(
+        "202501",
+        trades=[
+            trade(date="2025.01.05", order="B1", side="BUY", qty=3, amount=0.30, total=-0.31),
+            trade(date="2025.01.10", order="S1", side="SELL", qty=1, amount=0.20, total=0.19),
+        ],
+        holdings=[holding(opening=0, ending=2)],
+    )
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2025,
+        account_opening_month="202501",
+        fx_rates={"USD": 7.0, "HKD": 0.9},
+    )
+    with runtime_config_environment(paths):
+        report = build_cost_basis_report([current], [])
+    disposal = report["moving_average"].disposals[0]
+    detail = __import__("ast").literal_eval(disposal["allocated_cost_detail"])
+    remaining = report["moving_average"].remaining_lots[0]
+    assert detail["pool_quantity_before"] == pytest.approx(3.0)
+    assert detail["pool_total_cost_before"] == pytest.approx(0.31)
+    assert disposal["allocated_cost"] + remaining["total_cost"] == pytest.approx(0.31, abs=1e-8)

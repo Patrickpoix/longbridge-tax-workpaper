@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from zipfile import ZipFile
 
 from openpyxl import load_workbook
@@ -32,6 +33,46 @@ def test_two_runs_do_not_reingest_output_pdfs(tmp_path: Path):
         names = archive.namelist()
         assert not any("/source_pdfs/" in name for name in names)
         assert any(name.endswith("manifest.json") for name in names)
+
+    with ZipFile(second.processed_delivery_zip) as archive:
+        processed_readme = archive.read(
+            next(name for name in archive.namelist() if name.endswith("/README.md"))
+        ).decode("utf-8")
+        assert "仍包含账户及交易级财务信息" in processed_readme
+
+    with ZipFile(second.sanitized_delivery_zip) as archive:
+        names = archive.namelist()
+        assert len(names) == 4
+        assert {Path(name).name for name in names} == {
+            "README.md", "manifest.json", "review_status.json", "longbridge_2025_sanitized_review.xlsx",
+        }
+        status = json.loads(archive.read(next(name for name in names if name.endswith("review_status.json"))))
+        assert set(status) == {"status", "review_status", "ready_to_file", "ready_for_review", "tax_year", "checks"}
+        assert all("detail" not in item for item in status["checks"])
+        manifest = json.loads(archive.read(next(name for name in names if name.endswith("manifest.json"))))
+        assert manifest["package_version"] == "1.0.0"
+        assert manifest["schema_version"] == "v4"
+        xlsx_name = next(name for name in names if name.endswith(".xlsx"))
+        extracted = tmp_path / "sanitized-review.xlsx"
+        extracted.write_bytes(archive.read(xlsx_name))
+
+    sanitized_workbook = load_workbook(extracted, read_only=True, data_only=True)
+    assert set(sanitized_workbook.sheetnames) == {
+        "年度纳税汇总", "财产转让计税情景", "年末汇率", "复核就绪性", "版本信息",
+    }
+    summary = sanitized_workbook["年度纳税汇总"]
+    account_values = [row[1].value for row in summary.iter_rows(min_row=1, max_row=12) if row[0].value == "账户"]
+    assert account_values == ["已脱敏"]
+    sanitized_text = "\n".join(
+        str(cell.value)
+        for sheet in sanitized_workbook.worksheets
+        for row in sheet.iter_rows()
+        for cell in row
+        if cell.value is not None
+    )
+    assert "H00000001" not in sanitized_text
+    for source_pdf in input_dir.glob("*.pdf"):
+        assert source_pdf.name not in sanitized_text
 
     archival = run_workpaper(
         input_dir,

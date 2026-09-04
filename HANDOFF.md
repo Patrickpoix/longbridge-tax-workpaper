@@ -1,485 +1,125 @@
-# Longbridge Tax Workpaper Skill — 项目交接文档 (HANDOFF)
+# Longbridge Tax Workpaper — 当前交接文档
 
-> 最后更新：2026-07-12 | 版本：v1.0.0 | 测试：67/67 ✅
+> 当前活动版本：v1.0.0。测试结果以当前 GitHub Actions 和实际本地执行为准；本文件不维护固定“通过多少条测试”的静态数字。
 
----
+## 1. 项目目标与边界
 
-## 一、项目概述
+本项目把同一长桥证券账户的月结单 PDF 转换为中国内地税收居民可复核的税务工作底稿。它提供计算、证据链、并列税务情景和复核状态，不生成或声称生成法律上最终可直接申报的税表。
 
-从**长桥证券（Longbridge Securities）月结单 PDF** 自动生成**中国内地税收居民**的税务工作底稿。支持加密/未加密 PDF，输出一个中文多工作表 Excel + 审计底稿 ZIP + 复核状态 JSON。
+核心流水线：
 
-- **GitHub**：https://github.com/Patrickpoix/longbridge-tax-workpaper
-- **许可证**：MIT
-- **Python**：3.11+ | 依赖：pdfplumber、Pillow、openpyxl（核心）；paddleocr（可选 OCR 后备）
-- **工作流**：PDF 解析 → 版式识别 → 交易/股息/利息抽取 → 期初成本重建 → FIFO/移动平均 → 底稿输出
+`PDF discovery → parse/OCR fallback → account/year split → cost basis → dividends/withholding → margin interest → readiness → workbook → three delivery levels`
 
----
+## 2. 当前权威入口与关键文件
 
-## 二、版本演进
+- CLI：`scripts/longbridge_tax_workpaper/cli.py`
+- 主编排：`scripts/longbridge_tax_workpaper/runner.py`
+- 多目录发现：`scripts/longbridge_tax_workpaper/discovery.py`
+- 成本编排：`scripts/longbridge_tax_workpaper/cost_basis.py`
+- FIFO / moving-average 引擎：`scripts/longbridge_tax_workpaper/cost_basis_engine.py`
+- 税务运行配置：`scripts/longbridge_tax_workpaper/config.py`
+- 股息/预扣税：`scripts/longbridge_tax_workpaper/dividends.py`
+- 复核状态：`scripts/longbridge_tax_workpaper/filing_readiness.py`
+- Excel / sanitized workbook：`scripts/longbridge_tax_workpaper/reporting.py`
+- 发布隐私检查：`scripts/longbridge_tax_workpaper/release_hygiene.py`、`scripts/validate_release.py`
+- Agent 配置：`agents/openai.yaml`
+- AI workflow：`SKILL.md`
+- 税务/输出/精度边界：`references/`
 
-| 版本 | 说明 | 状态 |
-|------|------|------|
-| **基础版** | 最初 GitHub 版本，基础解析 + 成本引擎 | 已归档 |
-| **skill(2)** | ChatGPT 修改版，增加精度、哈希、后处理等 | 已归档 |
-| **skillv3 (v0.4.1)** | 积累全部改进，CI/CD 就绪 | 已归档 |
-| **V4 (v1.0.0) ← 当前** | Decimal精度管线、cost_basis拆分、CLI口径参数、代码质量全面增强 | **活动版本** |
+## 3. 当前运行契约
 
-### V4 (v1.0.0) 相对 skillv3 的主要增强
+### 输入与密码
 
-1. **Decimal 精度管线** — FX 汇率全程 `Decimal` 字符串存储，消除 `float` 精度丢失
-2. **交互模式输入验证** — 目录存在检查、年度范围校验、汇率格式验证
-3. **全局序列 ID** — `_next_seq()` 全局递增计数器，消除跨事件序列碰撞
-4. **版式识别增强** — 增加繁体别名、持仓区段检测，提升不同月份 PDF 的兼容性
-5. **`cost_basis.py` 重构为 4 模块** — `security.py`、`cost_basis_models.py`、`cost_basis_engine.py`、`cost_basis.py`
-6. **`_auto_ex_events` 修复** — 修正 quantity 来源、net cash_effect、warrant 分类
-7. **CLI 口径选择参数** — `--cost-basis-method`、`--withholding-credit`、`--deduct-margin-interest`
-8. **`lru_cache` 修复** — 手动路径键缓存消除环境变量缓存失效
-9. **代码质量** — serialization 性能优化、21 个新测试用例、统一容差常量
-10. **`classify_tax_category` 全覆盖测试** — 14 个分支 + 辅助函数测试
+- 主输入目录为 positional `input_dir`。
+- 历史证据目录使用可重复的 `--extra-input-dir`，不得把多个目录拼成一个伪路径。
+- PDF 发现大小写兼容 `.pdf/.PDF`，并跨全部输入根按 SHA-256 去重。
+- 交互式密码通过 `getpass` 隐藏输入；非交互模式使用当前进程的 `LONGBRIDGE_PDF_PASSWORD`。密码不得进入 CLI 参数、源码、日志或产物。
 
----
+### 成本方法
 
-## 三、项目结构（同 skillv3）
+- 默认主方法：`MOVING_AVERAGE`。
+- 工作簿仍同时生成 FIFO 与 moving-average 结果供审计比较。
+- `--cost-basis-method FIFO|MOVING_AVERAGE|BOTH` 决定主复核错误合同；不是“只生成该方法”。
+- 年初存在正持仓的标的对 FIFO 一律需要历史成本证据，即使本年度后来又买入。
+- FIFO-only 历史缺口不得污染已选择的 moving-average readiness。
+- 两个方法必须使用独立 opening-lot 状态，禁止共享可变 `Lot` 对象。
 
-```
-longbridge-tax-workpaper/
-├── start.bat                        # Windows 一键启动 (双击即可)
-├── SKILL.md                         # AI 技能元数据 (供 Codex/Claude 使用)
-├── README.md                        # 用户文档
-├── HANDOFF.md                       # ← 本交接文档
-├── CONTRIBUTING.md                  # 贡献指南
-├── SECURITY.md                      # 安全策略
-├── LICENSE.txt                      # MIT 许可证
-├── pyproject.toml                   # 构建配置 + 入口点
-├── constraints.txt                  # 依赖版本约束
-├── requirements.txt                 # 核心依赖
-├── requirements-dev.txt             # 开发依赖
-├── MANIFEST.in                      # 打包包含文件
-│
-├── scripts/                         # 可安装包位置
-│   ├── run_workpaper.py             # 直接运行 (无需 pip install)
-│   ├── validate_release.py          # 发布前校验脚本
-│   │
-│   └── longbridge_tax_workpaper/    # ← 核心源码包
-│       ├── __init__.py              # __version__ = "1.0.0"
-│       ├── __main__.py              # python -m 入口
-│       ├── cli.py                   # CLI 解析 + 交互式引导
-│       ├── runner.py                # 主流程编排
-│       ├── config.py                # 运行时配置生成
-│       ├── discovery.py             # PDF 发现 + 去重
-│       ├── ingest.py                # PDF 密码处理
-│       ├── pipeline.py              # 解析管道
-│       ├── template_registry.py     # 版式识别引擎
-│       ├── normalize.py             # 数据规范化
-│       ├── cost_basis.py            # 成本基准 + FIFO/移动平均
-│       ├── dividends.py             # 股息与预扣税
-│       ├── margin_interest.py       # 融资利息
-│       ├── reporting.py             # Excel 工作簿生成
-│       ├── filing_policy.py         # 税务策略
-│       ├── filing_readiness.py      # 复核就绪性评估
-│       ├── validate.py              # 校验引擎
-│       ├── postprocess.py           # 跨月交易所上下文解决
-│       ├── hashing.py               # SHA-256 哈希
-│       ├── money.py                 # Decimal 精度工具
-│       ├── schema.py                # 数据结构定义
-│       ├── serialization.py         # JSON/CSV 序列化
-│       ├── taxonomy.py              # 分类标准
-│       ├── symbol_mapping.py        # 证券代码映射
-│       ├── jurisdiction.py          # 法域判断
-│       ├── release_hygiene.py       # 发布前隐私扫描
-│       ├── xlsx_determinism.py      # Excel 确定性生成
-│       ├── archive_determinism.py   # ZIP 确定性生成
-│       │
-│       ├── data/                    # 默认配置模板
-│       │   ├── default_jurisdiction.json
-│       │   ├── default_symbol_mapping.json
-│       │   ├── default_tax_policy.json
-│       │   └── default_taxpayer_profile.json
-│       │
-│       └── extractors/              # PDF 抽取器
-│           ├── native/              # 原生文本提取
-│           │   ├── overview.py      # 月结单概览
-│           │   ├── portfolio.py     # 持仓
-│           │   ├── trades.py        # 交易
-│           │   └── cash_flows.py    # 现金流
-│           └── ocr/                 # OCR 后备提取
-│               └── __init__.py
-│
-├── tests/                           # 测试套件 (67 个测试)
-│   ├── conftest.py
-│   ├── test_cli.py                  # CLI 测试
-│   ├── test_config.py               # 配置测试
-│   ├── test_cost_basis_numeric.py   # 成本基准数值测试
-│   ├── test_discovery.py            # PDF 发现测试
-│   ├── test_dividend_and_fx.py      # 股息与汇率测试
-│   ├── test_extractors.py           # PDF 提取器测试
-│   ├── test_financial_modules.py    # 财务模块测试
-│   ├── test_idempotency.py          # 幂等性测试
-│   ├── test_ingest_cache.py         # 摄取缓存测试
-│   ├── test_postprocess_and_autoex.py
-│   ├── test_readiness.py            # 复核就绪性测试
-│   ├── test_reporting.py            # 报表生成测试
-│   ├── test_runtime_and_release.py  # 运行时与发布测试
-│   ├── test_sensitive_release.py    # 隐私扫描测试 (CI)
-│   ├── test_template_registry.py    # 版式注册表测试
-│   └── test_workbook_numeric_contract.py
-│
-├── references/                      # 参考文档
-│   ├── tax-boundaries.md            # 税务边界声明
-│   ├── output-sheets.md             # 输出工作表说明
-│   ├── precision-and-evidence.md    # 精度与证据链
-│   └── troubleshooting.md           # 故障排除指南
-│
-├── agents/                          # AI agent 配置
-│   └── longbridge-workpaper.md
-│
-├── assets/                          # 静态资源
-│   └── icon-large.png
-│
-├── .github/workflows/ci.yml         # CI 配置
-└── .gitignore
-```
+### 税务选项
 
----
+- `--withholding-credit` 是“请求在测算中应用月结单预扣税候选”，应用额 capped at 中国税额；仍必须产生非阻断 WARNING，最终资格需凭证/专业复核。
+- `--deduct-margin-interest` 是“融资利息扣除候选/请求”，不是自动法律认定。默认 policy 仍不直接扣除；custom policy 明示可扣除时也保留 WARNING。
+- 缺汇率时 CNY 输出为空，不用 0 代替。
 
-## 四、核心架构与设计决策
+### 精度
 
-### 4.1 数据流
+- 汇率、关键货币金额、税额和成本分配使用 `Decimal` 精度边界。
+- 内部关键货币计算规范化到 8 位，CNY 输出 2 位，`ROUND_HALF_UP`。
+- PDF 解析值和部分数量字段仍可能是 float；不要写“全链路/全程 Decimal”。
 
-```
-月结单 PDF（1-12 月 + 上年末）
-    │
-    ▼
-find_pdfs() ─── SHA-256 去重，排除输出目录
-    │
-    ▼
-parse_pdf_set() ─── 密码解密、文本提取、版式识别
-    │                     │
-    │               ┌─────┴─────┐
-    │               │           │
-    │           原生文本      OCR 后备
-    │           (pdfplumber)  (PaddleOCR, 可选)
-    │               │           │
-    │               └─────┬─────┘
-    │                     │
-    ▼                     ▼
-resolve_cross_month_statement_context()
-    │
-    ▼
-split_account_and_year() ─── 年度选择 + 账户过滤
-    │
-    ├──→ prior_statements → 期初成本重建
-    │
-    ▼
-build_cost_basis_report() ─── FIFO + 移动平均
-build_dividend_tax_basis_rows()
-build_margin_interest_*_rows()
-assess_filing_readiness()
-    │
-    ▼
-build_processed_workbook() → .xlsx
-write_deterministic_zip()  → .zip (audit + delivery)
-```
+## 4. 三层交付隐私模型
 
-### 4.2 关键设计决策
+1. `longbridge_<year>_workpapers.zip`：最高敏感级别；详细 JSON/CSV/config/hash/evidence，可按明确请求包含原 PDF。
+2. `longbridge_<year>_processed_delivery.zip`：不含原 PDF，但仍包含账户、交易、持仓与来源文件追溯；仅供明确授权的专业复核者。
+3. `longbridge_<year>_sanitized_delivery.zip`：去标识化汇总复核包，仅含 sanitized workbook、sanitized `review_status.json`、README、manifest。
 
-| 决策 | 理由 |
-|------|------|
-| 版式用**能力锚点别名**而非硬编码年份 | 2026+ 未来年份自动适配，无需每年改代码 |
-| 默认**不含原始 PDF** 到底稿 ZIP | 降低误传敏感财务资料风险 |
-| 只统计**已实现盈亏**，不含未实现 | 符合中国税务申报口径 |
-| FIFO 和移动平均**并列输出** | 两种方法在税法中均有依据，用户自选 |
-| **预扣税默认零抵免** | 无合格凭证时不自作主张 |
-| 融资利息**不默认税前扣除** | 个人融资利息是否能税前扣除需个案判断 |
-| **交互式 + CLI 双模式** | 高级用户用参数，新手用交互引导 |
-| PDF 密码**只通过环境变量** | 避免进入 shell 历史、进程参数、日志 |
-| `Decimal` + `ROUND_HALF_UP` | 税务计算必须精确且可复现 |
-| 缓存匹配需**文件名 + SHA-256** | 防同名不同文件导致的采信错误 |
+sanitized workbook 的 sheet 集必须精确为：
 
-### 4.3 版式识别策略
+- `年度纳税汇总`
+- `财产转让计税情景`
+- `年末汇率`
+- `复核就绪性`
+- `版本信息`
 
-```
-template_registry.py
-    │
-    ├── normalize_header() → 规范化表头（去空格、转小写）
-    ├── scan_signatures() → 扫描能力锚点
-    ├── score_template()  → 加权评分
-    │
-    ├── ≥ 阈值 → 确定版式 → structured extraction
-    ├── < 阈值 → OCR fallback → re-scoring
-    └── still unknown → unknown_template → 阻断
-```
+账户显示为“已脱敏”；复核说明统一替换为“详见完整底稿”。sanitized review status 不带 detail、blocking/warning reason、pending review rows 或交易引用。
 
-当前已知版式：`longbridge_v3`（长桥证券 2024+ 月结单标准版式）
+## 5. Manifest / version
 
-### 4.4 隐私保护体系
+Manifest 将发行包版本与 schema 版本分离：
 
-```
-                  ┌─────────────────────────┐
-                  │  源码零隐私              │
-                  │  (无账户号/密码/姓名)    │
-                  └────────┬────────────────┘
-                           │
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌────────────┐  ┌───────────┐  ┌──────────────┐
-    │ CI 自动扫  │  │ 发布前扫  │  │ .gitignore   │
-    │ 描敏感    │  │ 描(validate│  │ 排除敏感数   │
-    │ token     │  │ _release) │  │ 据目录       │
-    └────────────┘  └───────────┘  └──────────────┘
-```
+- `package_version` = `longbridge_tax_workpaper.__version__`
+- `schema_version` = `v4`
 
-- CI 每次 push 运行 `test_sensitive_release.py`
-- 发布前运行 `validate_release.py`（校验 + 隐私扫描）
-- `.gitignore` 排除 outputs、review_run_outputs、所有 PDF/XLSX/ZIP
+不要再把 schema 代号混进 package version。
 
----
+## 6. 发布与隐私控制
 
-## 五、使用方式
+- public tests 只能使用 synthetic / irreversible anonymized 数据。
+- 禁止把真实敏感值通过 fragments、encoding、字符串拼接等可逆方式藏进仓库。
+- `.gitignore` 不是 release gate；权威 release scan 为 `scripts/validate_release.py` + CI tracked-tree validation。
+- 当前树修干净不等于 Git 历史干净。若历史存在泄漏，必须在独立备份、Actions 全绿、Git identity 已精确确认后再执行 history rewrite。
 
-### 方式 1：Windows 一键启动（推荐新手）
+## 7. CI / 本地验证合同
+
+GitHub Actions matrix：
+
+- Ubuntu：Python 3.11 / 3.12 / 3.13，执行 coverage gate `--cov-fail-under=77`。
+- Windows：Python 3.13，执行功能 `pytest -q`，不在 Windows job 强制 coverage。
+- 所有 matrix：验证 module/console `--help`，执行 `python -m build`。
+- 非 Windows：构造 clean tracked release tree 后运行 `scripts/validate_release.py`。
+
+本地收尾至少执行：
 
 ```bash
-# 双击 start.bat
-# 或在命令行运行：
-start.bat
-```
-
-自动创建虚拟环境 → 安装依赖 → 进入交互式引导。
-
-### 方式 2：交互式 CLI（无需参数）
-
-```bash
-# 安装后直接运行，自动进入交互模式
-longbridge-tax-workpaper
-# 或：
-python -m longbridge_tax_workpaper
-```
-
-交互引导会逐个询问：目录路径、密码、年度、汇率、OCR。
-
-### 方式 3：传统命令行（高级用户）
-
-```bash
-# 设置密码（仅环境变量，安全）
-# Windows CMD: set LONGBRIDGE_PDF_PASSWORD=你的密码
-# PowerShell:  $env:LONGBRIDGE_PDF_PASSWORD="你的密码"
-
-longbridge-tax-workpaper 月结单目录 \
-  --output-dir outputs \
-  --tax-year 2025 \
-  --fx USD=7.0288 \
-  --fx HKD=0.90322
-```
-
-### 方式 4：直接运行（无需 pip install）
-
-```bash
-python scripts/run_workpaper.py 月结单目录 --output-dir outputs
-```
-
-### 输出文件
-
-| 文件 | 说明 |
-|------|------|
-| `longbridge_<年度>_processed_results.xlsx` | 多工作表 Excel（中文名） |
-| `longbridge_<年度>_workpapers.zip` | 审计底稿（JSON/CSV/配置/哈希） |
-| `longbridge_<年度>_processed_delivery.zip` | 对外审阅精简包（不含PDF） |
-| `review_status_<年度>.json` | 复核状态（不是ready to file） |
-
----
-
-## 六、测试状态
-
-**当前：67/67 通过 ✅**（2026-07-12 验证）
-
-| 测试文件 | 重点覆盖 |
-|----------|----------|
-| test_cli.py | 入口点、--help、OCR 开关 |
-| test_config.py | 运行时配置生成、汇率来源元数据 |
-| test_cost_basis_numeric.py | FIFO/移动平均数值正确性 |
-| test_discovery.py | PDF 发现、去重、排除输出目录 |
-| test_dividend_and_fx.py | 股息行、汇率换算 |
-| test_extractors.py | PDF 文本层提取 |
-| test_financial_modules.py | 财务模块集成 |
-| test_idempotency.py | 相同输入 → 相同输出 |
-| test_ingest_cache.py | 缓存命中/失效条件 |
-| test_postprocess_and_autoex.py | 跨月上下文解决 |
-| test_readiness.py | 复核状态计算 |
-| test_reporting.py | Excel 报表生成 |
-| test_runtime_and_release.py | 运行时完整路径 |
-| test_sensitive_release.py | CI 隐私扫描 |
-| test_template_registry.py | 版式识别评分 |
-| test_workbook_numeric_contract.py | 工作簿数值合同 |
-
-### CI 矩阵
-
-- Ubuntu: Python 3.11 / 3.12 / 3.13
-- Windows: Python 3.13
-- 覆盖率门槛：≥ 80%
-- 额外步骤：构建 wheel + 释放树校验
-
-### 已知问题
-
-1. **控制台入口点** `longbridge-tax-workpaper` 在部分 Windows PATH 配置下不注册 — 使用 `python -m longbridge_tax_workpaper` 始终可行
-2. **OCR 为可选**：`pip install ".[ocr]"` 需额外安装 paddleocr/paddlepaddle（较大）
-3. **年末汇率需用户提供**（来自国家外汇管理局 SAFE 网站）
-4. **`SOURCE_JURISDICTION`** 检查依赖用户维护的 `instrument_jurisdiction.json`
-5. **测试 PDF 固件**是合成生成的（reportlab），不是真实月结单
-
----
-
-## 七、CI/CD 与发布
-
-### CI 流程 (`.github/workflows/ci.yml`)
-
-```yaml
-on: push + pull_request
-jobs:
-  test:
-    matrix: [ubuntu (3.11/3.12/3.13), windows (3.13)]
-    steps:
-      1. checkout + setup-python (cache pip)
-      2. pip install -e ".[dev]" -c constraints.txt
-      3. pytest --cov=longbridge_tax_workpaper --cov-fail-under=80
-      4. Verify installed command (--help)
-      5. Build wheel + sdist (python -m build)
-      6. Validate release tree (git ls-files → validate_release.py)
-```
-
-### 发布新版本
-
-```bash
-# 1. 更新版本号
-# scripts/longbridge_tax_workpaper/__init__.py → __version__
-
-# 2. 本地完整验证
-python -m pytest -q --cov=longbridge_tax_workpaper --cov-fail-under=80
+git diff --check
+python -m pytest -q
 python scripts/validate_release.py .
-
-# 3. 提交并打标签
-git add -A
-git commit -m "v0.4.2: ..."
-git tag v0.4.2
-git push origin main --tags
-
-# 4. GitHub Actions 自动验证并构建
-```
-
----
-
-## 八、隐私与安全
-
-### 禁止行为
-
-- ❌ 不要在源码、配置、测试固件中放入真实账户号/密码/姓名
-- ❌ 不要在 CLI 参数中传入密码（使用 `LONGBRIDGE_PDF_PASSWORD` 环境变量）
-- ❌ 不要把含 PDF 的底稿 ZIP 发给无关第三方
-
-### 必须执行的检查
-
-- 每次修改后运行 `python scripts/validate_release.py .`（输出 `RELEASE_TREE_OK`）
-- 提交前检查 `git diff` 是否包含个人信息
-- 测试固件使用合成 PDF（reportlab 生成）
-
----
-
-## 九、开发者快速上手
-
-```bash
-# 克隆
-git clone https://github.com/Patrickpoix/longbridge-tax-workpaper.git
-cd longbridge-tax-workpaper
-
-# 创建虚拟环境
-python -m venv .venv
-# .venv\Scripts\activate     (Windows)
-# source .venv/bin/activate  (macOS/Linux)
-
-# 安装开发模式
-python -m pip install -e ".[dev]" -c constraints.txt
-
-# 运行测试
-python -m pytest -q                    # 46 tests
-python -m pytest --cov -q              # 带覆盖率
-
-# 构建
+python -m longbridge_tax_workpaper --help
+longbridge-tax-workpaper --help
 python -m build
-
-# 运行交互模式
-python -m longbridge_tax_workpaper
-
-# 运行 CLI 模式
-$env:LONGBRIDGE_PDF_PASSWORD="test"
-python -m longbridge_tax_workpaper tests/fixtures --output-dir outputs --fx USD=7.0 --fx HKD=0.9
 ```
 
----
+若本机存在另一个 editable install，必须确认实际 import path 指向当前 checkout，避免“测试通过了错误仓库”。
 
-## 十、常见问题与排查
+## 8. 文档读取顺序
 
-### `unknown_template`
+1. `README.md`
+2. `SKILL.md`
+3. `references/tax-boundaries.md`
+4. `references/output-sheets.md`
+5. `references/precision-and-evidence.md`
+6. `references/troubleshooting.md`
+7. 当前整改/工作日志（如存在）
 
-原因：PDF 版式与长桥证券标准版式不匹配。
-解决：
-1. 确认 PDF 确实是长桥证券月结单
-2. 尝试 `--enable-ocr`（默认已开启）
-3. 检查 `references/troubleshooting.md`
+## 9. Git 边界
 
-### 测试失败：`test_sensitive_release` 发现敏感 token
-
-原因：新代码中包含了类似账户号的字符串。
-解决：
-1. 搜索 `"ACC"+"999999"` 等片段模式
-2. 使用字符串分片拼接（如 `"ACC"+"999999"`）
-3. 或将其放入 `.gitignore` 的文件中
-
-### 输出文件为空
-
-原因：缺少年度汇率或 PDF 密码未设置。
-解决：
-1. 确认 `LONGBRIDGE_PDF_PASSWORD` 环境变量已设置（如需要）
-2. 提供 USD/CNY 和 HKD/CNY 汇率
-3. 检查 review_status.json 中的阻断原因
-
-### pip install 失败
-
-原因：网络问题或 Python 版本不符。
-解决：
-1. 确认 Python ≥ 3.11
-2. 使用 `-c constraints.txt` 固定版本
-3. 国外源可加 `-i https://pypi.org/simple`
-
----
-
-## 十一、模型/Agent 交接要点
-
-当新 AI 模型/Agent 接手此项目时：
-
-1. **阅读本 HANDOFF.md**（你正在看的就是）
-2. **阅读 SKILL.md**（供 AI 消费的元数据和工作流）
-3. **阅读 README.md**（用户文档）
-4. **阅读 `references/tax-boundaries.md`**（税务边界声明，输出结论前必读）
-5. **运行 `pytest -q`** 确认 67/67 通过
-6. **运行 `python scripts/validate_release.py .`** 确认无隐私泄露
-
-### 关键变量
-
-| 变量 | 用途 |
-|------|------|
-| `LONGBRIDGE_PDF_PASSWORD` | PDF 密码（只环境变量，不入 CLI） |
-| `LONGBRIDGE_TAX_POLICY_PATH` | 策略 JSON 路径 |
-| `LONGBRIDGE_TAXPAYER_PROFILE_PATH` | 纳税人资料 JSON 路径 |
-| `LONGBRIDGE_JURISDICTION_PATH` | 法域映射 JSON 路径 |
-| `LONGBRIDGE_SYMBOL_MAPPING_PATH` | 证券代码映射 JSON 路径 |
-
-### 参考文件读取顺序
-
-1. `references/tax-boundaries.md` — 税务专家已知边界
-2. `references/output-sheets.md` — 输出工作表规格
-3. `references/precision-and-evidence.md` — 精度与证据链
-4. `references/troubleshooting.md` — 故障排除
-
----
-
-*本交接文档随项目进度持续更新。最后更新：2026-07-12*
+修改、测试、diff 可以在未设置 repo-local identity 时进行；commit/push/history rewrite 必须先精确确认该 GitHub 账户的 commit email，不得猜测。历史改写是最后阶段，不与普通源代码修复混在一起。

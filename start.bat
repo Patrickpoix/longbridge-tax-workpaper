@@ -64,7 +64,7 @@ if errorlevel 1 (
     echo.
     echo 处理失败。可能是以下原因：
     echo   - 目录中没有有效的月结单 PDF
-    echo   - PDF 密码错误（使用 LONGBRIDGE_PDF_PASSWORD 环境变量）
+    echo   - PDF 密码错误（交互模式隐藏输入；非交互可使用 LONGBRIDGE_PDF_PASSWORD）
     echo   - 缺少依赖
     echo.
     echo 详情请查看上方错误信息。
@@ -81,10 +81,12 @@ if errorlevel 1 (
     echo 输出文件在 outputs 文件夹中：
     echo   - longbridge_年度_processed_results.xlsx
     echo   - longbridge_年度_workpapers.zip
+    echo   - longbridge_年度_processed_delivery.zip（仍含账户/交易级敏感信息）
+    echo   - longbridge_年度_sanitized_delivery.zip（脱敏汇总复核包）
     echo   - review_status_年度.json
     echo.
-    echo 税务口径提示：默认采用保守计算（不抵免、不扣除）。
-    echo 如需调整请重新运行并添加对应参数。
+    echo 税务口径提示：默认主成本方法为 MOVING_AVERAGE，不抵免、不扣除。
+    echo withholding/margin 参数表达测算请求或候选，仍需凭证/人工复核。
 )
 
 echo.

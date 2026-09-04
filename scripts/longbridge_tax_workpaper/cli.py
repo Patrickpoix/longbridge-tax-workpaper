@@ -5,14 +5,26 @@ import json
 import os
 import sys
 from decimal import Decimal, InvalidOperation
+from getpass import getpass
+from pathlib import Path
 from typing import Any
 
 from . import __version__
 from .runner import run_workpaper
-from .discovery import find_pdfs, parse_pdf_set, split_account_and_year
+from .discovery import find_pdfs_from_roots, parse_pdf_set, split_account_and_year
 from .postprocess import resolve_cross_month_statement_context
-from .cost_basis import _securities_needing_prior_data
-from pathlib import Path
+from .cost_basis import _securities_covered_by_prior_data, _securities_needing_prior_data
+
+
+def _configure_text_io() -> None:
+    """Keep Chinese CLI output usable on Windows and redirected streams."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 
 def _key_value_pairs(values: list[str], *, label: str) -> dict[str, str]:
@@ -64,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="从长桥证券月结单PDF生成中国内地税务工作底稿"
     )
     parser.add_argument("input_dir", nargs="?", help="包含月结单PDF的目录（递归扫描子目录中所有 *.pdf）")
+    parser.add_argument(
+        "--extra-input-dir",
+        action="append",
+        default=[],
+        help="补充历史月结单目录，可重复指定；主要用于 FIFO 期初成本追溯",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--output-dir", default="outputs", help="输出目录")
     parser.add_argument(
@@ -130,12 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--withholding-credit",
         action="store_true",
-        help="启用境外预扣税抵免（默认关闭；仅在持有合格境外纳税凭证时启用）",
+        help="请求在测算中应用月结单境外预扣税抵免候选（默认关闭；按中国税额封顶，仍需凭证/人工复核）",
     )
     parser.add_argument(
         "--deduct-margin-interest",
         action="store_true",
-        help="允许融资利息税前扣除（默认不扣除；需个案判断是否符合税法条件）",
+        help="请求把融资利息列为税前扣除候选（默认不扣除；不会自动认定法律上可扣除）",
     )
     return parser
 
@@ -163,8 +181,10 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         input_dir = raw
         break
 
+    extra_input_dirs: list[str] = []
+
     # 2. 密码
-    pwd = input("\nPDF密码（未加密则直接回车）:\n> ")
+    pwd = getpass("\nPDF密码（未加密则直接回车）:\n> ")
     if pwd:
         os.environ["LONGBRIDGE_PDF_PASSWORD"] = pwd
 
@@ -221,8 +241,8 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
     print()
     print("--- 成本计算方法选择 ---")
     print("  MOVING_AVERAGE (默认): 使用券商展示成本（移动平均），无需前期月结单")
-    print("  FIFO              : 先进先出法 ⚠ 需提供纳税年度前买入月份的月结单")
-    print("  BOTH              : 并列输出两种方法 ⚠ 需提供纳税年度前买入月份的月结单")
+    print("  FIFO              : 先进先出法；只追溯目标年度年初已有持仓的标的")
+    print("  BOTH              : 并列输出两种方法；FIFO 部分按同一历史证据规则追溯")
     print()
     while True:
         cbm_raw = input("请选择（回车默认 MOVING_AVERAGE，或输入 FIFO / BOTH / MA）:\n> ").strip().upper()
@@ -233,14 +253,17 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         elif cbm_raw in ("FIFO", "BOTH"):
             label = "FIFO" if cbm_raw == "FIFO" else "BOTH（含 FIFO）"
             print()
-            print(f"  ⚠ {label} 需提供纳税年度前的月结单来追溯 FIFO 成本。")
+            print(f"  ⚠ {label} 的 FIFO 部分只需追溯目标年度年初已有持仓的标的。")
+            print("  请补充构成这些年初持仓的历史成交/交割记录，以及必要的往年持仓记录用于核对剩余数量。")
+            print("  若期间只是普通拆股/合股，系统会根据前后持仓数量与成本反推，不要求额外提交整套公司行动资料。")
+            print("  目标年度内新买入、且年初无持仓的标的不需要额外历史资料。")
             print()
 
             # Pre-scan: find securities needing prior data
             print("  正在扫描 PDF，分析持仓情况...")
             pwd = os.environ.get("LONGBRIDGE_PDF_PASSWORD", "")
             try:
-                pdfs = find_pdfs(input_dir)
+                pdfs = find_pdfs_from_roots([input_dir, *extra_input_dirs])
                 stmts_all = resolve_cross_month_statement_context(
                     parse_pdf_set(pdfs, password=pwd, enable_ocr=("--disable-ocr" not in fx_args))
                 )
@@ -252,7 +275,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
 
             if sec_info.get("needs_prior"):
                 print()
-                print(f"  ⚠ 以下标的年初有持仓但本年度无买入记录：")
+                print("  ⚠ 以下标的年初已有持仓，需要补充对应的历史成本证据：")
                 for sid in sec_info["needs_prior"]:
                     print(f"     - {sid}")
 
@@ -262,28 +285,25 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
 
                 # 二次目录输入
                 extra_dirs = input("\n  请输入补充目录路径（可直接拖入，多个用 ; 分隔，回车跳过）:\n  > ").strip()
-                extra_pdfs: list[Any] = []
                 if extra_dirs:
                     for d in extra_dirs.split(";"):
                         d = d.strip().strip('"').strip("'")
                         if os.path.isdir(d):
-                            extra_pdfs.extend(str(p) for p in find_pdfs(d))
-                    if extra_pdfs:
-                        print(f"  已找到 {len(extra_pdfs)} 份补充月结单，重新扫描...")
+                            extra_input_dirs.append(d)
+                    if extra_input_dirs:
                         try:
-                            all_pdfs = list(pdfs) + [Path(p) for p in extra_pdfs]
-                            from pathlib import Path
+                            all_pdfs = find_pdfs_from_roots([input_dir, *extra_input_dirs])
+                            print(f"  已从全部输入目录找到 {len(all_pdfs)} 份去重后的月结单，重新扫描...")
                             stmts_all2 = resolve_cross_month_statement_context(
-                                parse_pdf_set(sorted(all_pdfs, key=lambda p: p.name), password=pwd, enable_ocr=("--disable-ocr" not in fx_args))
+                                parse_pdf_set(all_pdfs, password=pwd, enable_ocr=("--disable-ocr" not in fx_args))
                             )
-                            _, _, stmts2, _ = split_account_and_year(stmts_all2, tax_year=tax_year)
+                            _, _, stmts2, prior2 = split_account_and_year(stmts_all2, tax_year=tax_year)
                             sec_info2 = _securities_needing_prior_data(stmts2)
-                            if not sec_info2.get("needs_prior"):
+                            still_missing = set(sec_info2["needs_prior"]) - _securities_covered_by_prior_data(prior2)
+                            if not still_missing:
                                 print(f"  ✓ 所有标的已可追溯 FIFO 成本！")
                             else:
-                                still_missing = set(sec_info2["needs_prior"])
                                 print(f"  补充后仍有 {len(still_missing)} 个标的缺少买入记录")
-                            input_dir = input_dir + ";" + extra_dirs
                         except Exception as e:
                             print(f"  重新扫描异常: {e}")
 
@@ -295,7 +315,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
                 if open_month:
                     print(f"  需补充 {open_month} 起月结单。")
             else:
-                print("  ✓ 所有标的均有买入记录，无需历史数据。")
+                print("  ✓ 年初没有需要追溯的持仓，无需额外历史数据。")
 
             print()
             confirm = input(f"  确认选择 {label}？按 Enter 确认，输入 back 重新选择:\n  > ").strip().lower()
@@ -316,6 +336,7 @@ def _interactive_prompt() -> tuple[dict[str, Any], list[str]]:
         "output_dir": output_dir,
         "tax_year": tax_year,
         "password": pwd if pwd else None,
+        "extra_input_dirs": extra_input_dirs,
     }
     return collected, fx_args
 
@@ -326,6 +347,7 @@ def _run(args: argparse.Namespace) -> int:
         result = run_workpaper(
             args.input_dir,
             args.output_dir,
+            extra_input_dirs=args.extra_input_dir,
             password=os.environ.get("LONGBRIDGE_PDF_PASSWORD"),
             tax_year=args.tax_year,
             account_id=args.account_id,
@@ -352,6 +374,7 @@ def _run(args: argparse.Namespace) -> int:
                 "workbook": str(result.workbook),
                 "workpapers_zip": str(result.workpapers_zip),
                 "processed_delivery_zip": str(result.processed_delivery_zip),
+                "sanitized_delivery_zip": str(result.sanitized_delivery_zip),
                 "review_status": str(result.review_status),
             },
             ensure_ascii=False,
@@ -362,6 +385,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_text_io()
     parser = build_parser()
 
     # 无参数 → 交互式引导
@@ -370,19 +394,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv:
         collected, extra_args = _interactive_prompt()
-        # 在空args基础上覆盖交互值，再解析额外参数
-        args = parser.parse_args([])
-        args.input_dir = collected["input_dir"]
+        interactive_argv = [collected["input_dir"], *extra_args]
+        for extra_dir in collected["extra_input_dirs"]:
+            interactive_argv.extend(["--extra-input-dir", extra_dir])
+        args = parser.parse_args(interactive_argv)
         args.output_dir = collected["output_dir"]
         args.tax_year = collected["tax_year"]
-        if extra_args:
-            extra = parser.parse_args(extra_args)
-            if extra.fx:
-                args.fx = extra.fx
-            if extra.fx_source:
-                args.fx_source = extra.fx_source
-            if extra.enable_ocr is not None:
-                args.enable_ocr = extra.enable_ocr
         return _run(args)
 
     args = parser.parse_args(argv)

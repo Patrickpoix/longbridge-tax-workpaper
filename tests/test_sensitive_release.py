@@ -1,44 +1,14 @@
 from pathlib import Path
 
-from longbridge_tax_workpaper.release_hygiene import forbidden_release_paths
+from longbridge_tax_workpaper.release_hygiene import (
+    forbidden_release_paths,
+    sensitive_text_findings,
+)
 
 
-SKIP_DIRS = {
-    ".git",
-    ".venv",
-    "venv",
-    "dist",
-    "build",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    "htmlcov",
-    ".review",
-    "outputs",
-    "review_run_outputs",
-}
-SKIP_SUFFIXES = {".pdf", ".png", ".zip", ".pyc", ".whl", ".gz", ".xlsx", ".xls"}
-
-
-def _is_scannable_source(path: Path, root: Path) -> bool:
-    if not path.is_file() or path.suffix.lower() in SKIP_SUFFIXES:
-        return False
-    parts = set(path.relative_to(root).parts)
-    if parts & SKIP_DIRS or any(part.endswith(".egg-info") for part in parts):
-        return False
-    return True
-
-
-def test_release_source_has_no_private_runtime_or_real_person_name():
+def test_release_source_has_no_sensitive_text():
     root = Path(__file__).parents[1]
-    blocked = ["PRIVATE_RELEASE_SENTINEL"]
-    for path in root.rglob("*"):
-        if not _is_scannable_source(path, root):
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for token in blocked:
-            assert token not in text, f"sensitive/private token found in {path}"
+    assert sensitive_text_findings(root) == []
 
 
 def test_release_hygiene_scans_the_actual_root(tmp_path: Path):
@@ -53,3 +23,44 @@ def test_release_hygiene_scans_the_actual_root(tmp_path: Path):
     assert ".pytest_cache" in found
     assert "scripts/package.egg-info" in found
     assert "dist" in found
+
+
+def test_release_hygiene_blocks_statement_and_delivery_artifacts(tmp_path: Path):
+    for name in (
+        "statement.pdf",
+        "result.xlsx",
+        "export.csv",
+        "delivery.zip",
+        ".env",
+        ".env.local",
+        "private.key",
+    ):
+        (tmp_path / name).write_bytes(b"x")
+    found = {path.relative_to(tmp_path).as_posix() for path in forbidden_release_paths(tmp_path)}
+    assert {
+        "statement.pdf",
+        "result.xlsx",
+        "export.csv",
+        "delivery.zip",
+        ".env",
+        ".env.local",
+        "private.key",
+    } <= found
+
+
+def test_sensitive_scan_detects_account_like_value_without_committing_one(tmp_path: Path):
+    token = "H" + "12345678"
+    (tmp_path / "sample.txt").write_text(token, encoding="utf-8")
+    assert sensitive_text_findings(tmp_path)
+
+
+def test_public_synthetic_account_sentinel_is_allowed(tmp_path: Path):
+    (tmp_path / "sample.txt").write_text("H00000001", encoding="utf-8")
+    assert sensitive_text_findings(tmp_path) == []
+
+
+def test_private_runtime_denylist(tmp_path: Path, monkeypatch):
+    private_token = "PRIVATE_" + "SENTINEL"
+    monkeypatch.setenv("LONGBRIDGE_RELEASE_BLOCKED_TOKENS", private_token)
+    (tmp_path / "sample.md").write_text(private_token, encoding="utf-8")
+    assert sensitive_text_findings(tmp_path)

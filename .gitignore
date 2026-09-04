@@ -21,3 +21,10 @@ review_run_outputs/
 *.csv
 *.zip
 .env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+pdf_extracts/
+runtime_config/

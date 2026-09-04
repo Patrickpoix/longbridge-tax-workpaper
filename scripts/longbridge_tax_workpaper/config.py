@@ -81,6 +81,7 @@ def _default_policy(
                 "label": "融资利息",
                 "treatment": "non_deductible_default",
                 "deductible_in_final_filing": False,
+                "deduction_requested": False,
             },
         },
         "property_transfer_loss_offset": {
@@ -95,6 +96,7 @@ def _default_policy(
             "tax_rate": 0.20,
             "automatic_credit_without_formal_documents": 0.0,
             "statement_withholding_as_candidate": True,
+            "apply_statement_withholding_credit": False,
             "note": "月结单扣税列为抵免候选；自动抵免默认为0。",
         },
         "precision": {
@@ -175,7 +177,7 @@ def prepare_runtime_config(
     profile_path: str | Path | None = None,
     jurisdiction_path: str | Path | None = None,
     symbol_mapping_path: str | Path | None = None,
-    cost_basis_method: str = "BOTH",
+    cost_basis_method: str = "MOVING_AVERAGE",
     withholding_credit: bool = False,
     deduct_margin_interest: bool = False,
 ) -> dict[str, Path]:
@@ -206,12 +208,22 @@ def prepare_runtime_config(
                     item["evidence_sha256"] = metadata.get("evidence_sha256")
     else:
         policy = _default_policy(tax_year, fx_rates, fx_metadata)
-    # Apply user-selected tax treatment options to policy
+    # CLI flags express a user request, not an automatic legal conclusion.
+    margin_rule = policy.setdefault("category_rules", {}).setdefault("margin_interest_deductible", {})
+    margin_rule.setdefault("deduction_requested", False)
     if deduct_margin_interest:
-        policy.setdefault("category_rules", {}).setdefault("margin_interest_deductible", {})["deductible_in_final_filing"] = True
-        policy["category_rules"]["margin_interest_deductible"]["treatment"] = "deductible"
+        margin_rule["deduction_requested"] = True
+        if not (policy_path and margin_rule.get("deductible_in_final_filing") is True):
+            margin_rule["deductible_in_final_filing"] = False
+            margin_rule["treatment"] = "deduction_candidate_requires_review"
+
+    dividend_basis = policy.setdefault("dividend_filing_basis", {})
+    dividend_basis.setdefault("automatic_credit_without_formal_documents", 0.0)
+    dividend_basis.setdefault("statement_withholding_as_candidate", True)
+    dividend_basis.setdefault("apply_statement_withholding_credit", False)
     if withholding_credit:
-        policy.setdefault("dividend_filing_basis", {})["automatic_credit_without_formal_documents"] = 1.0
+        dividend_basis["apply_statement_withholding_credit"] = True
+        dividend_basis["automatic_credit_without_formal_documents"] = 0.0
     _write_json(policy_target, policy)
 
     if profile_path:
@@ -221,12 +233,16 @@ def prepare_runtime_config(
             profile["account_opening_month"] = account_opening_month
     else:
         profile = _default_profile(tax_year, account_opening_month)
-    # Apply user-selected cost basis method to profile
-    methods_produced = {"FIFO": ["FIFO"], "MOVING_AVERAGE": ["MOVING_AVERAGE"], "BOTH": ["FIFO", "MOVING_AVERAGE"]}
-    profile.setdefault("cost_basis_method", {})["methods_produced"] = methods_produced.get(cost_basis_method, ["FIFO", "MOVING_AVERAGE"])
-    if cost_basis_method != "BOTH":
-        profile["cost_basis_method"]["selected_method"] = cost_basis_method
-        profile["cost_basis_method"]["status"] = "user_selected"
+    # Both methods remain in the workpaper for audit comparison; selection only
+    # controls the primary readiness/error contract.
+    method_profile = profile.setdefault("cost_basis_method", {})
+    method_profile["methods_produced"] = ["FIFO", "MOVING_AVERAGE"]
+    if cost_basis_method in {"FIFO", "MOVING_AVERAGE"}:
+        method_profile["selected_method"] = cost_basis_method
+        method_profile["status"] = "user_selected"
+    else:
+        method_profile["selected_method"] = None
+        method_profile["status"] = "method_unconfirmed"
     _write_json(profile_target, profile)
 
     if jurisdiction_path:

@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
-from .filing_policy import year_end_fx_rate
+from .filing_policy import load_tax_policy, year_end_fx_rate
 from .jurisdiction import jurisdiction_for
 from .money import decimal_value, q_cny, to_float
 from .schema import FieldValue, SectionResult, StatementResult
@@ -55,6 +55,10 @@ def _converted(value: Decimal, currency: str) -> tuple[Decimal | None, Decimal |
 
 
 def build_dividend_tax_basis_rows(statements: Iterable[StatementResult]) -> list[dict[str, object]]:
+    policy = load_tax_policy()
+    apply_statement_credit = bool(
+        policy.get("dividend_filing_basis", {}).get("apply_statement_withholding_credit")
+    )
     rows: list[dict[str, object]] = []
     for statement in sorted(statements, key=lambda st: st.statement_month):
         section = statement.sections.get("other_fund_flows", SectionResult(name="other_fund_flows"))
@@ -118,8 +122,16 @@ def build_dividend_tax_basis_rows(statements: Iterable[StatementResult]) -> list
                 else None
             )
             china_tax_before = q_cny(filing_cny * Decimal("0.20")) if filing_cny is not None else None
-            automatic_credit = Decimal("0")
-            tax_after_auto = china_tax_before
+            if china_tax_before is not None and candidate_cny is not None:
+                automatic_credit = (
+                    q_cny(min(candidate_cny, china_tax_before))
+                    if apply_statement_credit
+                    else Decimal("0")
+                )
+                tax_after_auto = q_cny(china_tax_before - automatic_credit)
+            else:
+                automatic_credit = None
+                tax_after_auto = None
             tax_after_candidate = (
                 q_cny(max(china_tax_before - candidate_cny, Decimal("0")))
                 if china_tax_before is not None and candidate_cny is not None
@@ -145,6 +157,7 @@ def build_dividend_tax_basis_rows(statements: Iterable[StatementResult]) -> list
                     "china_tax_before_credit_cny": to_float(china_tax_before),
                     "china_tax_after_statement_credit_cny": to_float(tax_after_candidate),
                     "automatic_credit_cny": to_float(automatic_credit),
+                    "statement_withholding_credit_applied_cny": to_float(automatic_credit),
                     "requested_credit_candidate_cny": to_float(candidate_cny),
                     "china_tax_after_automatic_credit_cny": to_float(tax_after_auto),
                     "china_tax_after_requested_candidate_cny": to_float(tax_after_candidate),
@@ -175,7 +188,7 @@ def dividend_basis_totals(statements: Iterable[StatementResult]) -> dict[str, fl
         "statement_withholding_credit_candidate_cny": _sum_complete(rows, "statement_withholding_credit_candidate_cny"),
         "china_tax_before_credit_cny": _sum_complete(rows, "china_tax_before_credit_cny"),
         "china_tax_after_statement_credit_cny": _sum_complete(rows, "china_tax_after_statement_credit_cny"),
-        "automatic_credit_cny": 0.0,
+        "automatic_credit_cny": _sum_complete(rows, "automatic_credit_cny"),
         "requested_credit_candidate_cny": _sum_complete(rows, "requested_credit_candidate_cny"),
         "china_tax_after_automatic_credit_cny": _sum_complete(rows, "china_tax_after_automatic_credit_cny"),
         "cash_received_hkd": to_float(q_cny(sum((decimal_value(row.get("cash_received"), default=Decimal("0")) or Decimal("0") for row in rows if row.get("currency") == "HKD"), Decimal("0")))),
