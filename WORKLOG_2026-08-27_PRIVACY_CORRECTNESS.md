@@ -13,7 +13,7 @@
 
 实际范围包括：发布隐私门禁、CLI/Windows/多输入根、成本方法与期初证据、预扣税/融资利息语义、成本数值精度、三层交付隐私模型、CI、用户/Agent 文档和对应回归测试。
 
-明确未做：commit、push、tag、force push、history rewrite、Git identity 猜测。repo-local identity 只在 GitHub API 明确确认后设置。
+最终已完成：源码整改 commit/push、GitHub Actions 双轮验证、`main` 与 `v1.0.0` 的受控 history rewrite、显式 `force-with-lease` 更新、rewrite 后 fresh clone / 独立 venv 全链路验证。未猜测 Git identity；repo-local identity 只在 GitHub API 明确确认后设置，global Git identity 未修改。
 
 ## 2. 本轮主要正确性结论
 
@@ -136,6 +136,15 @@
 - 新增 worklog 后再次执行 `validate_release.py`：`RELEASE_TREE_OK`；再次执行 `git diff --check`：PASS。
 - 只读 Git 历史扫描：共 46 个历史 commit；非 synthetic 的完整账户样式直接命中为 0，但 46/46 commit 均存在旧 `BLOCKED_TEXT` validator 和可逆账户片段模式；历史禁止二进制/secret 路径计数为 0。结论：历史 rewrite 确有必要，污染来源是旧隐私门禁源码本身，而不是提交了 PDF/XLSX/CSV/ZIP/.env/key 等文件。
 - Git identity 权威核验：GitHub REST commit API 成功返回当前 HEAD，并明确关联到仓库 owner `Patrickpoix`；API commit email 与本地 HEAD author email 完全一致。随后仅设置 repo-local `user.name` / `user.email`，未输出具体 email，未改 global config。
+- 源码整改提交：`0298350d739debbcbac400afffd629c2792126fb`，提交后普通 push 到用户自己的 `Patrickpoix/longbridge-tax-workpaper`；该次 GitHub Actions Ubuntu 3.11/3.12/3.13 与 Windows 3.13 四个 job 全部 success。
+- history rewrite 演练：先从完整 bundle 克隆独立 rehearsal repo，只重写 `scripts/validate_release.py` 与 `tests/test_sensitive_release.py` 中已确认的旧可逆隐私门禁片段；rewrite 后最新树与 rewrite 前树 `0` 文件差异，47 个可达 commit 中可逆片段命中 `0`，`pytest` 85/85 通过。
+- 真实 history rewrite：在 fresh-fetch 确认远端未并发前进后，只重写 `main` 与 `v1.0.0`；rewrite 后本地 `main=a091d859be019658f6d794e19bf48f1ec2b56a11`、`v1.0.0=220e5aea814f256a8c7f47f808aec8e21c0e66a9`。最新树与 rewrite 前树仍为 `0` 文件差异，47 个可达 commit 中可逆片段命中 `0`。
+- rewrite 后本地完整验证：`pytest` 85/85，coverage 78.43% ≥ 77%，release validator、module/console help、`python -m build` 全部通过。
+- 远端更新使用显式旧 SHA 的 `force-with-lease`，分别更新 `main` 与 `v1.0.0`；远端回读 SHA 与本地一致。rewrite 后触发的 GitHub Actions 四个 matrix job 再次全部 success。
+- GitHub fresh clone 验证：全新 clone 的 47 个可达 commit 中非 synthetic 完整账户样式命中 `0`、可逆片段命中 `0`、历史禁止文件路径命中 `0`；release tree `RELEASE_TREE_OK`。
+- fresh clone 独立 venv 正常升级到现代 setuptools 后执行 `pip install -e ".[dev]"` 成功，import path 明确指向 fresh clone；随后 `pytest` 85/85、coverage 77.85% ≥ 77%、release validator、module/console help、`python -m build` 全部通过。
+- 本地 `refs/original` 已删除并执行 GC；rehearsal clone、fresh-clone 验证目录、独立 venv、sanitizer 临时脚本和包含旧历史的临时 backup bundle 均已删除，避免在本机继续保留旧敏感历史副本。
+- GitHub 服务器对象可达性复核：虽然旧 commit 已不再被当前 branch/tag 引用，但对 3 个代表性旧 SHA 的 GitHub commit API 查询仍返回 HTTP 200。因此当前结论只能是“远端 refs / fresh clone 历史已清洁”，不能声称 GitHub 服务器端旧对象已经物理清除；该剩余事项需要按 GitHub 官方敏感数据清除流程处理服务器端缓存/对象。
 
 ## 5. 发生过的失败、重试与不确定性
 
@@ -150,20 +159,22 @@
 7. `python -m build` 有一条既有 MANIFEST warning：`tests` 下没有匹配的 `*.pdf`；构建仍成功。该 warning 与本轮 correctness/privacy 目标无功能影响，未为消除 warning 而添加无意义 PDF fixture。
 8. 第一次只读历史扫描的 PowerShell/regex 命令因引号组合错误退出，未产生结果、未写入仓库；随后改用只读 Python 包装 Git 成功完成扫描。
 9. 尝试使用 GitHub CLI 做 identity 查询时发现当前机器没有 `gh.exe`，因此该路径未执行；随后使用 GitHub REST commit API + 本地 HEAD author metadata 完成等价的权威核验。
+10. history rewrite 第一次 rehearsal 使用 tree-filter，在 Local 进程时限内只跑到 13/47；第二次 index-filter 仍因 60 秒执行窗口在 31/47 终止。两次都只发生在独立 rehearsal clone，真实仓库未受影响。第三次提高单次 timeout 后完整完成 47/47。
+11. fresh-clone 独立 venv 首轮组合命令中，`pytest` 85/85 和 coverage 77.85% 均已通过，但随后 release validator 按设计拒绝测试刚生成的 `.coverage`、`.pytest_cache`、egg-info、`__pycache__`，导致该串命令在 build 前退出；清理这些本地测试产物后，release validator、两种 help 和 build 独立重跑全部通过。
 
-## 6. 相关但未运行的验证及原因
+## 6. 相关验证边界
 
-- 未在本机真实执行 GitHub Actions 的 Ubuntu Python 3.11/3.12/3.13 matrix；本机为 Windows Python 3.11.5。已执行同一 coverage 命令和 build/release/help 合同，但真正的多 OS / 多 Python 结果仍应以 Actions 为准。
+- GitHub Actions 已在源码整改普通 push 后和 history rewrite force-with-lease 后各运行一轮；两轮的 Ubuntu Python 3.11/3.12/3.13 与 Windows Python 3.13 全部 success。
 - 未执行真实券商私有月结单端到端回归。本轮 public/release 边界禁止把真实私有 statement 数据复制到公开仓库或测试 fixture；现有 synthetic/匿名化测试用于验证合同。
 - 未安装或运行可选 PaddleOCR 全量环境；本轮未修改 OCR 核心实现，相关既有测试已包含在 85 个全量测试中。
-- 新增 worklog 后没有重新运行全量 pytest/coverage，因为 worklog 只新增 Markdown，不改变可执行代码；新增后仍需并实际执行 release validator 与 `git diff --check`。
+- GitHub fresh clone 已用独立 venv 做正常 editable install 和全量测试/coverage/help/build，因此原机器旧 editable install 的 false-green 风险已通过独立环境验证排除。
 
 ## 7. 已知未解决问题与仍不确定的结论
 
-1. Git 历史 rewrite **确认有必要**：46/46 历史 commit 都带有旧 `BLOCKED_TEXT` validator 和可逆账户片段模式。当前树已修复，但旧 commit 仍保留该内容。
-2. repo-local Git identity 门禁已解除：GitHub REST 明确把当前 HEAD 关联到 `Patrickpoix`，且 API email 与 HEAD author email 一致；已设置 repo-local identity。是否 commit/push 仍应先 fresh-fetch 确认远端没有并发前进。
-3. 机器全局 Python 仍可能保留指向旧 checkout 的 editable install；本轮测试通过显式当前仓库 `scripts/` 的 `PYTHONPATH` 避免 false green。后续若要长期本机开发，应在不影响其他项目的前提下单独整理 Python 环境。
-4. Windows 本地 coverage 为 78.43%，只高于冻结 gate 约 1.43 个百分点。当前没有发现必须为覆盖率数字本身新增低价值测试的理由；若后续代码继续扩展，应关注 gate headroom。
+1. 当前 branch/tag refs 与 fresh clone 的可达 Git 历史已经完成清理：47 个可达 commit 的目标可逆片段命中为 0，最新树保持字节级等价。
+2. **GitHub 服务器端旧对象仍可通过旧 SHA 直接访问**：代表性旧 commit API 当前仍返回 HTTP 200。下一步是 GitHub 平台侧敏感数据 purge；在该步骤完成并复核旧 SHA 不再可达前，不能宣称远端服务器已彻底物理删除旧对象。
+3. 机器全局 Python 仍可能保留指向旧 checkout 的 editable install，但 fresh clone + 独立 venv 已证明正式安装链路可用。若后续长期本机开发，可单独整理全局 Python 环境，不应为此污染项目源码。
+4. coverage headroom 仍较小：原工作区 78.43%，fresh-clone 独立 venv 77.85%，均通过冻结 77% gate。后续扩展代码时应关注门槛余量，但不为覆盖率数字本身堆低价值测试。
 5. sanitized delivery 是去标识化汇总包，不等于公开可发布数据；年度金额本身仍是敏感财务信息。
 
 ## 8. 安全、数据、研究与执行边界
@@ -171,8 +182,8 @@
 - 未向第三方上传真实券商 PDF、账户数据或密码。
 - 未在 public fixture / source 中新增真实敏感值。
 - 未用可逆编码、字符串拼接等方式隐藏真实敏感值。
-- 未改写 Git 历史。
-- 未 commit / push / tag / force-push。
+- history rewrite 只修改已确认的两个隐私门禁源码/测试文件中的旧可逆片段，未顺手重写业务逻辑。
+- 普通源码整改先 commit/push 并等待 Actions 全绿；history rewrite 之后使用显式旧 SHA 的 `force-with-lease` 更新 `main` 与 `v1.0.0`，没有对任何官方/上游仓库推送。
 - 未猜测 GitHub commit email；只在 GitHub API 明确确认 HEAD commit 的账户归属和 email 匹配后，把同一 identity 写入 repo-local config；未改 global config。
 - 未把税务 option 的用户请求表述成最终法律结论；程序和文档都保留复核边界。
 - 本轮只在用户授权的本地项目中修改代码/文档，没有触碰无关仓库。
@@ -193,8 +204,7 @@
 
 下一步顺序：
 
-1. fresh-fetch `origin/main`，确认远端自施工基线后没有并发前进；若前进，先处理远端差异，不覆盖他人提交。
-2. 在当前验证结果仍有效且 diff 无新增问题的前提下，提交当前树并 push 到用户自己的 `Patrickpoix/longbridge-tax-workpaper`，然后检查 GitHub Actions。
-3. Actions 全绿后，为 history rewrite 创建独立本地备份/保留点；history rewrite 与普通源码 commit 分开处理。
-4. rewrite 应只清理已确认的历史隐私门禁污染，不顺手重写无关内容；完成后重新扫描全部历史，确认旧可逆片段模式归零。
-5. rewrite 后重新执行 release tree scan、fresh clone / install / module+console help / pytest / coverage / build，并再次检查 Actions。
+1. 按 GitHub 官方“Removing sensitive data from a repository”流程处理服务器端旧对象/缓存 purge；向 GitHub Support 提供仓库、已完成 rewrite/force-push 的说明及需要 purge 的旧对象范围，但不要在公开 issue 中重新粘贴敏感值。
+2. Support 完成后，重新查询代表性旧 SHA；只有旧对象不再可访问，才把服务器端清理状态改为完成。
+3. 若任何泄漏内容属于仍有效 credential/token/password，必须独立 revoke/rotate；本轮已确认的主要污染是旧隐私门禁中的账户片段，不应把 history rewrite 当作 credential rotation 的替代品。
+4. 后续开发保持当前 release validator、sanitized delivery、method-specific readiness 与 GitHub Actions gate；不要恢复可逆私有 denylist 或把真实敏感值写回 public tests/source。

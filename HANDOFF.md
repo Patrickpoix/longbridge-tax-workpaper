@@ -86,7 +86,8 @@ Manifest 将发行包版本与 schema 版本分离：
 - public tests 只能使用 synthetic / irreversible anonymized 数据。
 - 禁止把真实敏感值通过 fragments、encoding、字符串拼接等可逆方式藏进仓库。
 - `.gitignore` 不是 release gate；权威 release scan 为 `scripts/validate_release.py` + CI tracked-tree validation。
-- 当前树修干净不等于 Git 历史干净。若历史存在泄漏，必须在独立备份、Actions 全绿、Git identity 已精确确认后再执行 history rewrite。
+- 当前树修干净不等于 Git 历史干净。本轮已经在独立演练、Actions 全绿和 Git identity 权威确认后完成 `main` + `v1.0.0` 的定向 history rewrite；fresh clone 的 47 个可达 commit 中目标可逆片段为 0。
+- GitHub refs 清洁也不等于 GitHub 服务器对象立即物理消失。rewrite/force-push 后代表性旧 SHA 仍可被 GitHub commit API 直接访问，因此服务器端彻底 purge 仍需按 GitHub 官方敏感数据清除流程处理并复核。
 
 ## 7. CI / 本地验证合同
 
@@ -120,6 +121,10 @@ python -m build
 6. `references/troubleshooting.md`
 7. 当前整改/工作日志（如存在）
 
-## 9. Git 边界
+## 9. Git / history 当前状态
 
-修改、测试、diff 可以在未设置 repo-local identity 时进行；commit/push/history rewrite 必须先精确确认该 GitHub 账户的 commit email，不得猜测。历史改写是最后阶段，不与普通源代码修复混在一起。
+- repo-local identity 已通过 GitHub REST 对已有 HEAD commit 的账户归属和 email 一致性做权威交叉验证后设置；global Git identity 未修改。
+- 当前远端 `main` 与 `v1.0.0` 已完成定向 history rewrite，rewrite 前后最新代码树 0 文件差异；rewrite 后 GitHub Actions 全绿。
+- fresh clone + 独立 venv 已完成正常安装、85/85 pytest、coverage gate、两种 help、release validator 和 build 验证。
+- 本地 `refs/original`、rehearsal/fresh-clone 临时目录、临时 venv 和含旧历史的临时 bundle 已清理。
+- 仍未完成的是 GitHub 服务器端旧 SHA 对象/缓存 purge；在代表性旧 SHA 不再可访问前，不要把“branch/tag 历史已重写”表述成“GitHub 服务器已彻底删除旧对象”。
