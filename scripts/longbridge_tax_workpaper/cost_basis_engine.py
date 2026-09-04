@@ -103,7 +103,7 @@ def run_fifo(opening_lots: list[Lot], events: list[CostBasisEvent]) -> MethodRes
             continue
         security_id = event.security_id
         queue = lots[security_id]
-        allocated = 0.0
+        allocated = Decimal("0")
         remaining_qty = abs(event.quantity)
         match_detail = {}
         status = "ok"
@@ -111,11 +111,21 @@ def run_fifo(opening_lots: list[Lot], events: list[CostBasisEvent]) -> MethodRes
         while remaining_qty > EPS and queue:
             lot = queue[0]
             used = min(lot.quantity, remaining_qty)
-            cost_share = lot.total_cost * (used / lot.quantity) if lot.quantity > EPS else 0.0
-            allocated += cost_share
+            cost_share = (
+                q_internal(
+                    decimal_value(lot.total_cost, default=0)
+                    * decimal_value(used, default=0)
+                    / decimal_value(lot.quantity, default=1)
+                )
+                if lot.quantity > EPS
+                else Decimal("0")
+            )
+            allocated = q_internal(allocated + cost_share)
             match_detail.setdefault(lot.source_reference, []).append(used)
             lot.quantity -= used
-            lot.total_cost -= cost_share
+            lot.total_cost = to_float(
+                q_internal(decimal_value(lot.total_cost, default=0) - cost_share)
+            )
             if lot.quantity <= EPS:
                 queue.popleft()
             remaining_qty -= used
@@ -125,7 +135,7 @@ def run_fifo(opening_lots: list[Lot], events: list[CostBasisEvent]) -> MethodRes
             result.errors.append(f"FIFO {security_id}: {status}")
 
         result.disposals.append(
-            _disposal_base(event, "FIFO", allocated, match_detail, status, f"FIFO matched from {len(match_detail)} lot(s)")
+            _disposal_base(event, "FIFO", to_float(allocated) or 0.0, match_detail, status, f"FIFO matched from {len(match_detail)} lot(s)")
         )
 
     for security_id, queue in lots.items():
@@ -157,9 +167,9 @@ def run_moving_average(
         sid = lot.security_id
         if sid not in state:
             state[sid] = {"symbol": lot.symbol, "asset_category": lot.asset_category,
-                          "currency": lot.currency, "quantity": 0.0, "total_cost": 0.0, "sources": []}
+                          "currency": lot.currency, "quantity": 0.0, "total_cost": Decimal("0"), "sources": []}
         state[sid]["quantity"] += lot.quantity
-        state[sid]["total_cost"] += lot.total_cost
+        state[sid]["total_cost"] += decimal_value(lot.total_cost, default=0)
         state[sid]["sources"].append({"type": lot.source_type, "ref": lot.source_reference,
                                       "evidence": lot.evidence})
 
@@ -172,11 +182,11 @@ def run_moving_average(
             continue
         sid = event.security_id
         current = state.setdefault(sid, {"symbol": event.symbol, "asset_category": event.asset_category,
-                                         "currency": event.currency, "quantity": 0.0, "total_cost": 0.0, "sources": []})
+                                         "currency": event.currency, "quantity": 0.0, "total_cost": Decimal("0"), "sources": []})
 
         if event.event_type == "BUY":
             current["quantity"] += abs(event.quantity)
-            current["total_cost"] += abs(event.cash_effect)
+            current["total_cost"] += decimal_value(abs(event.cash_effect), default=0)
             current["sources"].append({"type": "BUY", "ref": event.source_reference, "pdf": event.source_pdf})
             continue
 
@@ -189,28 +199,36 @@ def run_moving_average(
             )
             continue
 
-        unit_cost = current["total_cost"] / current["quantity"]
+        pool_quantity_before = float(current["quantity"])
+        pool_total_cost_before = decimal_value(current["total_cost"], default=0)
+        unit_cost = q_internal(
+            pool_total_cost_before / decimal_value(pool_quantity_before, default=1)
+        )
         used_qty = min(remaining_qty, current["quantity"])
-        allocated_cost = unit_cost * used_qty
+        allocated_cost = q_internal(unit_cost * decimal_value(used_qty, default=0))
         remaining_qty -= used_qty
         current["quantity"] -= used_qty
-        current["total_cost"] -= allocated_cost
+        current["total_cost"] = q_internal(pool_total_cost_before - allocated_cost)
         status = "ok" if remaining_qty <= EPS else f"insufficient_lots_remaining_qty={remaining_qty}"
 
         if remaining_qty > EPS:
             result.errors.append(f"MOVING_AVERAGE {sid}: {status}")
 
-        match_detail = {"pool_unit_cost": round(unit_cost, 8), "pool_quantity_before": round(unit_cost * used_qty + current["total_cost"], 8)}
+        match_detail = {
+            "pool_unit_cost": to_float(unit_cost),
+            "pool_quantity_before": round(pool_quantity_before, 8),
+            "pool_total_cost_before": to_float(q_internal(pool_total_cost_before)),
+        }
         result.disposals.append(
-            _disposal_base(event, "MOVING_AVERAGE", allocated_cost, match_detail, status,
-                           f"Moving-average pool: {used_qty} @ {unit_cost:.8f}")
+            _disposal_base(event, "MOVING_AVERAGE", to_float(allocated_cost) or 0.0, match_detail, status,
+                           f"Moving-average pool: {used_qty} @ {to_float(unit_cost):.8f}")
         )
 
     for sid, current in state.items():
         qty = float(current["quantity"])
         if qty <= EPS:
             continue
-        tc = float(current["total_cost"])
+        tc = to_float(q_internal(decimal_value(current["total_cost"], default=0))) or 0.0
         result.remaining_lots.append({
             "method": "MOVING_AVERAGE",
             "security_id": sid,

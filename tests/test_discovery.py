@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from longbridge_tax_workpaper.discovery import find_pdfs, split_account_and_year
+from longbridge_tax_workpaper.discovery import find_pdfs, find_pdfs_from_roots, split_account_and_year
 from longbridge_tax_workpaper.schema import FieldValue, StatementResult
 
 
@@ -44,3 +44,22 @@ def test_find_pdfs_excludes_output_and_deduplicates(tmp_path: Path):
     found = find_pdfs(input_dir, exclude_roots=[output_dir])
     assert len(found) == 1
     assert found[0].name == "a.pdf"
+
+
+def test_find_pdfs_accepts_uppercase_extension(tmp_path: Path):
+    target = tmp_path / "statement.PDF"
+    target.write_bytes(b"upper")
+    assert find_pdfs(tmp_path) == [target]
+
+
+def test_find_pdfs_from_roots_merges_and_deduplicates_content(tmp_path: Path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "a.pdf").write_bytes(b"same")
+    (second / "duplicate.pdf").write_bytes(b"same")
+    (second / "b.pdf").write_bytes(b"different")
+    found = find_pdfs_from_roots([first, second])
+    assert len(found) == 2
+    assert {path.read_bytes() for path in found} == {b"same", b"different"}

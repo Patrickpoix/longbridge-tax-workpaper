@@ -10,24 +10,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from longbridge_tax_workpaper.release_hygiene import forbidden_release_paths
-
-# Construct sensitive tokens from fragments so this validator does not contain
-# the complete private values it is designed to reject.
-BLOCKED_TEXT = {"PRIVATE_RELEASE_SENTINEL"}
-TEXT_SUFFIXES = {".py", ".md", ".toml", ".yml", ".yaml", ".json", ".txt", ".cfg", ".ini"}
-
-
-def sensitive_text_findings(root: Path) -> list[str]:
-    findings: list[str] = []
-    for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in TEXT_SUFFIXES:
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for token in BLOCKED_TEXT:
-            if token in text:
-                findings.append(f"{path.relative_to(root).as_posix()}: contains blocked token")
-    return findings
+from longbridge_tax_workpaper.release_hygiene import (
+    forbidden_release_paths,
+    sensitive_text_findings,
+)
 
 
 def main() -> int:
@@ -37,7 +23,11 @@ def main() -> int:
     root = Path(args.root).resolve()
 
     required = [root / "SKILL.md", root / "agents" / "openai.yaml", root / "pyproject.toml"]
-    problems = [f"missing required file: {path.relative_to(root).as_posix()}" for path in required if not path.is_file()]
+    problems = [
+        f"missing required file: {path.relative_to(root).as_posix()}"
+        for path in required
+        if not path.is_file()
+    ]
     problems.extend(path.relative_to(root).as_posix() for path in forbidden_release_paths(root))
     problems.extend(sensitive_text_findings(root))
     if problems:

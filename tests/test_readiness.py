@@ -99,3 +99,58 @@ def test_low_signature_score_escalates_to_review(tmp_path: Path):
     recognition = next(item for item in status["checks"] if item["code"] == "TEMPLATE_RECOGNITION")
     assert recognition["status"] == "WARNING"
     assert status["status"] == "REVIEW_REQUIRED"
+
+
+def test_selected_moving_average_ignores_fifo_only_engine_error(tmp_path: Path):
+    statements = _complete_year_statements()
+    report = minimal_report()
+    report["method_errors"] = {"FIFO": ["fifo history incomplete"], "MOVING_AVERAGE": []}
+    report["errors"] = ["fifo history incomplete"]
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2026,
+        account_opening_month="202601",
+        fx_rates={"USD": 7, "HKD": 0.9},
+        cost_basis_method="MOVING_AVERAGE",
+    )
+    with runtime_config_environment(paths):
+        status = assess_filing_readiness(statements, cost_report=report, as_of=date(2027, 1, 1))
+    engine = next(item for item in status["checks"] if item["code"] == "COST_BASIS_ENGINE")
+    method = next(item for item in status["checks"] if item["code"] == "COST_METHOD_CONFIRMATION")
+    assert engine["status"] == "PASS"
+    assert method["status"] == "PASS"
+
+
+def test_both_method_mode_uses_union_errors(tmp_path: Path):
+    statements = _complete_year_statements()
+    report = minimal_report()
+    report["method_errors"] = {"FIFO": ["fifo history incomplete"], "MOVING_AVERAGE": []}
+    report["errors"] = ["fifo history incomplete"]
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2026,
+        account_opening_month="202601",
+        fx_rates={"USD": 7, "HKD": 0.9},
+        cost_basis_method="BOTH",
+    )
+    with runtime_config_environment(paths):
+        status = assess_filing_readiness(statements, cost_report=report, as_of=date(2027, 1, 1))
+    engine = next(item for item in status["checks"] if item["code"] == "COST_BASIS_ENGINE")
+    assert engine["status"] == "BLOCKED"
+
+
+def test_requested_tax_flags_remain_review_warnings(tmp_path: Path):
+    statements = _complete_year_statements()
+    paths = prepare_runtime_config(
+        tmp_path / "config",
+        tax_year=2026,
+        account_opening_month="202601",
+        fx_rates={"USD": 7, "HKD": 0.9},
+        withholding_credit=True,
+        deduct_margin_interest=True,
+    )
+    with runtime_config_environment(paths):
+        status = assess_filing_readiness(statements, cost_report=minimal_report(), as_of=date(2027, 1, 1))
+    checks = {item["code"]: item for item in status["checks"]}
+    assert checks["WITHHOLDING_CREDIT_EVIDENCE"]["status"] == "WARNING"
+    assert checks["MARGIN_INTEREST_TAX_TREATMENT"]["status"] == "WARNING"

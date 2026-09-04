@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -23,6 +23,14 @@ TITLE_FONT = Font(bold=True, color="17365D", size=15)
 SUBTITLE_FILL = PatternFill("solid", fgColor="EAF2F8")
 SUBTITLE_FONT = Font(bold=True, color="17365D")
 NOTE_FILL = PatternFill("solid", fgColor="FFF2CC")
+
+SANITIZED_SHEETS = {
+    "年度纳税汇总",
+    "财产转让计税情景",
+    "年末汇率",
+    "复核就绪性",
+    "版本信息",
+}
 
 ZH_HEADERS = {
     "statement_month": "月结单月份", "source_pdf": "来源PDF", "row_index": "行号",
@@ -276,6 +284,7 @@ def build_processed_workbook(
 
     dividend_income = _sum_complete(dividends, "filing_dividend_income_cny")
     dividend_candidate = _sum_complete(dividends, "statement_withholding_credit_candidate_cny")
+    dividend_auto_credit = _sum_complete(dividends, "automatic_credit_cny")
     reward_cny, reward_status = _reward_cny(statements, policy)
     scenario_rows = _summary_scenarios(cost_report)
 
@@ -288,7 +297,7 @@ def build_processed_workbook(
     dividend_tax = q_cny(dividend_income * Decimal("0.20")) if dividend_income is not None else None
     reward_tax = q_cny(reward_cny * Decimal("0.20")) if reward_cny is not None else None
     rows: list[list[Any]] = [
-        ["股息红利所得", "月结单税前股息年度折算", to_float(dividend_income), 0.20, to_float(dividend_tax), 0.0, to_float(dividend_candidate), "工作底稿" if dividend_income is not None else "缺少年末汇率"],
+        ["股息红利所得", "月结单税前股息年度折算", to_float(dividend_income), 0.20, to_float(dividend_tax), to_float(dividend_auto_credit), to_float(dividend_candidate), "工作底稿" if dividend_income is not None else "缺少年末汇率"],
         ["现金奖励", "其他/偶然性质收入候选", to_float(reward_cny), 0.20, to_float(reward_tax), 0.0, 0.0, "工作底稿" if reward_status == "完整" else reward_status],
     ]
     for item in scenario_rows:
@@ -358,3 +367,40 @@ def build_processed_workbook(
     wb.save(target)
     canonicalize_xlsx_package(target)
     return target
+
+
+def build_sanitized_review_workbook(
+    source: str | Path,
+    target: str | Path,
+) -> Path:
+    """Create the aggregate-only workbook intended for deidentified review."""
+    source_path = Path(source)
+    target_path = Path(target)
+    wb = load_workbook(source_path)
+
+    for sheet_name in list(wb.sheetnames):
+        if sheet_name not in SANITIZED_SHEETS:
+            del wb[sheet_name]
+
+    summary = wb["年度纳税汇总"]
+    for row in summary.iter_rows(min_row=1, max_row=min(summary.max_row, 12)):
+        if row and row[0].value == "账户" and len(row) >= 2:
+            row[1].value = "已脱敏"
+
+    readiness = wb["复核就绪性"]
+    header_row = None
+    detail_col = None
+    for row_idx in range(1, min(readiness.max_row, 10) + 1):
+        values = [readiness.cell(row_idx, column).value for column in range(1, readiness.max_column + 1)]
+        if "说明" in values:
+            header_row = row_idx
+            detail_col = values.index("说明") + 1
+            break
+    if header_row and detail_col:
+        for row_idx in range(header_row + 1, readiness.max_row + 1):
+            readiness.cell(row_idx, detail_col, "详见完整底稿")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(target_path)
+    canonicalize_xlsx_package(target_path)
+    return target_path

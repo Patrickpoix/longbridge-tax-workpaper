@@ -4,18 +4,19 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
+from . import __version__
 from .archive_determinism import write_deterministic_zip
 from .config import prepare_runtime_config, runtime_config_environment
 from .cost_basis import build_cost_basis_report
-from .discovery import find_pdfs, parse_pdf_set, split_account_and_year
+from .discovery import find_pdfs_from_roots, parse_pdf_set, split_account_and_year
 from .dividends import build_dividend_tax_basis_rows
 from .filing_readiness import assess_filing_readiness
 from .hashing import sha256_file
 from .margin_interest import build_margin_interest_actual_payment_rows, build_margin_interest_hkd_basis_rows
 from .postprocess import resolve_cross_month_statement_context
-from .reporting import build_processed_workbook
+from .reporting import build_processed_workbook, build_sanitized_review_workbook
 from .serialization import section_rows, write_csv, write_statement_json
 
 
@@ -26,6 +27,7 @@ class RunResult:
     workbook: Path
     workpapers_zip: Path
     processed_delivery_zip: Path
+    sanitized_delivery_zip: Path
     review_status: Path
     output_dir: Path
 
@@ -38,7 +40,31 @@ def _manifest(root: Path) -> dict[str, Any]:
             "size_bytes": path.stat().st_size,
             "sha256": sha256_file(path),
         })
-    return {"package_version": "longbridge-tax-workpaper-v4", "files": files}
+    return {
+        "package_version": __version__,
+        "schema_version": "v4",
+        "files": files,
+    }
+
+
+def _sanitized_review_status(readiness: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": readiness.get("status"),
+        "review_status": readiness.get("review_status"),
+        "ready_to_file": readiness.get("ready_to_file"),
+        "ready_for_review": readiness.get("ready_for_review"),
+        "tax_year": readiness.get("tax_year"),
+        "checks": [
+            {
+                "code": item.get("code"),
+                "label": item.get("label"),
+                "status": item.get("status"),
+                "blocking": item.get("blocking"),
+                "risk_type": item.get("risk_type"),
+            }
+            for item in readiness.get("checks", [])
+        ],
+    }
 
 
 def _csv_rows_from_report(cost_report: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -82,6 +108,7 @@ def run_workpaper(
     input_dir: str | Path,
     output_dir: str | Path,
     *,
+    extra_input_dirs: Iterable[str | Path] = (),
     password: str | None = None,
     tax_year: int | None = None,
     account_id: str | None = None,
@@ -93,14 +120,15 @@ def run_workpaper(
     symbol_mapping_path: str | Path | None = None,
     enable_ocr: bool = True,
     include_source_pdfs: bool = False,
-    cost_basis_method: str = "BOTH",
+    cost_basis_method: str = "MOVING_AVERAGE",
     withholding_credit: bool = False,
     deduct_margin_interest: bool = False,
 ) -> RunResult:
     input_dir = Path(input_dir).resolve()
+    extra_roots = [Path(item).resolve() for item in extra_input_dirs]
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    pdfs = find_pdfs(input_dir, exclude_roots=[output_dir])
+    pdfs = find_pdfs_from_roots([input_dir, *extra_roots], exclude_roots=[output_dir])
     if not pdfs:
         raise FileNotFoundError(f"输入目录未找到PDF: {input_dir}")
 
@@ -128,7 +156,8 @@ def run_workpaper(
 
     workpapers = output_dir / f"longbridge_{selected_year}_workpapers"
     delivery = output_dir / f"longbridge_{selected_year}_processed_delivery"
-    for folder in (workpapers, delivery):
+    sanitized_delivery = output_dir / f"longbridge_{selected_year}_sanitized_delivery"
+    for folder in (workpapers, delivery, sanitized_delivery):
         if folder.exists():
             shutil.rmtree(folder)
     (workpapers / "monthly_json").mkdir(parents=True, exist_ok=True)
@@ -207,13 +236,38 @@ def run_workpaper(
     delivery.mkdir(parents=True)
     shutil.copy2(workbook_path, delivery / workbook_path.name)
     shutil.copy2(review_status_path, delivery / "review_status.json")
-    delivery_readme = readme + "\n对外审阅优先使用本精简包；完整底稿包可能包含敏感原始PDF。\n"
+    delivery_readme = readme + (
+        "\n本包不含原始 PDF，但仍包含账户及交易级财务信息；"
+        "仅向明确授权的专业复核人员提供。\n"
+    )
     (delivery / "README.md").write_text(delivery_readme, encoding="utf-8")
     (delivery / "manifest.json").write_text(
         json.dumps(_manifest(delivery), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     processed_zip = output_dir / f"longbridge_{selected_year}_processed_delivery.zip"
     write_deterministic_zip(processed_zip, delivery, archive_root_name=delivery.name)
+
+    sanitized_delivery.mkdir(parents=True)
+    sanitized_workbook = sanitized_delivery / f"longbridge_{selected_year}_sanitized_review.xlsx"
+    build_sanitized_review_workbook(workbook_path, sanitized_workbook)
+    sanitized_status_path = sanitized_delivery / "review_status.json"
+    sanitized_status_path.write_text(
+        json.dumps(_sanitized_review_status(readiness), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    sanitized_readme = (
+        f"# 长桥证券 {selected_year} 年度脱敏复核包\n\n"
+        "已去除账户号、交易明细、持仓明细、来源文件名/SHA 等直接或高粒度识别信息；"
+        "年度汇总金额本身仍属于敏感财务信息。\n\n"
+        "本包仅用于无需交易级证据的去标识化汇总复核，不替代完整底稿或专业税务意见。\n"
+    )
+    (sanitized_delivery / "README.md").write_text(sanitized_readme, encoding="utf-8")
+    (sanitized_delivery / "manifest.json").write_text(
+        json.dumps(_manifest(sanitized_delivery), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    sanitized_zip = output_dir / f"longbridge_{selected_year}_sanitized_delivery.zip"
+    write_deterministic_zip(sanitized_zip, sanitized_delivery, archive_root_name=sanitized_delivery.name)
 
     external_status = output_dir / f"review_status_{selected_year}.json"
     shutil.copy2(review_status_path, external_status)
@@ -223,6 +277,7 @@ def run_workpaper(
         workbook=workbook_path,
         workpapers_zip=workpapers_zip,
         processed_delivery_zip=processed_zip,
+        sanitized_delivery_zip=sanitized_zip,
         review_status=external_status,
         output_dir=output_dir,
     )

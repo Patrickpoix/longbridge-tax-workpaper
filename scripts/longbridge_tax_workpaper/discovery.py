@@ -22,7 +22,9 @@ def find_pdfs(input_dir: str | Path, *, exclude_roots: Iterable[str | Path] = ()
     root = Path(input_dir).resolve()
     excluded = [Path(item).resolve() for item in exclude_roots]
     candidates: list[Path] = []
-    for path in sorted(root.rglob("*.pdf")):
+    for path in sorted(root.rglob("*")):
+        if path.suffix.lower() != ".pdf":
+            continue
         if not path.is_file() or path.is_symlink():
             continue
         if any(_inside(path, ex) for ex in excluded):
@@ -42,6 +44,19 @@ def find_pdfs(input_dir: str | Path, *, exclude_roots: Iterable[str | Path] = ()
     unique: dict[str, Path] = {}
     for path in candidates:
         unique.setdefault(sha256_file(path), path)
+    return sorted(unique.values(), key=lambda p: p.as_posix())
+
+
+def find_pdfs_from_roots(
+    roots: Iterable[str | Path],
+    *,
+    exclude_roots: Iterable[str | Path] = (),
+) -> list[Path]:
+    """Discover PDFs across multiple roots while preserving content-based deduplication."""
+    unique: dict[str, Path] = {}
+    for root in roots:
+        for path in find_pdfs(root, exclude_roots=exclude_roots):
+            unique.setdefault(sha256_file(path), path)
     return sorted(unique.values(), key=lambda p: p.as_posix())
 
 

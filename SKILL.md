@@ -10,7 +10,7 @@ Generate a reviewable workpaper, never claim to create a legally final tax retur
 ## Workflow
 
 1. Locate the uploaded Longbridge monthly statement PDFs for one account.
-2. Use a PDF password already supplied in the conversation. Otherwise ask once. Pass it only through `LONGBRIDGE_PDF_PASSWORD`; never place it in CLI arguments, source, logs, workbooks, manifests, or reports.
+2. Use a PDF password already supplied in the conversation. Interactive use should enter it through the non-echoing prompt; non-interactive use should pass it through the controlled-process `LONGBRIDGE_PDF_PASSWORD`. Never place it in CLI arguments, source, logs, workbooks, manifests, or reports.
 3. Determine the requested tax year. If absent, let the program select only the latest year containing exactly January through December. Do not silently treat a partial year as complete.
 4. Obtain the December 31 USD/CNY and HKD/CNY middle rates from an official Chinese source when possible. Pass the rates and source metadata to the program. If unavailable, omit the rates; keep CNY outputs blank and mark them incomplete.
 
@@ -43,12 +43,13 @@ longbridge-tax-workpaper <pdf-directory> \
 
 Double-click `start.bat` — it handles venv creation, pip install, and interactive prompts.
 
-6. Verify that the output contains one multi-sheet Excel workbook, one workpaper ZIP, one processed-delivery ZIP, and one review-status JSON.
+6. Verify that the output contains one multi-sheet Excel workbook, one workpaper ZIP, one sensitive processed-delivery ZIP, one sanitized-delivery ZIP, and one review-status JSON.
 7. Inspect at least `年度纳税汇总`, `财产转让计税情景`, `FIFO已实现盈亏`, `移动平均已实现盈亏`, `股息与预扣税`, `期初逐月持仓对账`, `持仓数量对账`, and `复核就绪性`.
 8. Return links to:
    - `longbridge_<year>_processed_results.xlsx`
    - `longbridge_<year>_workpapers.zip`
    - `longbridge_<year>_processed_delivery.zip`
+   - `longbridge_<year>_sanitized_delivery.zip`
    - `review_status_<year>.json`
 
 ## Required behavior
@@ -59,8 +60,10 @@ Double-click `start.bat` — it handles venv creation, pip install, and interact
 - Produce FIFO and moving weighted average results.
 - Produce separate-market netting, same-account cross-market netting, and positive-disposals-without-loss-offset scenarios.
 - Never present a scenario as the sole legally confirmed filing method without archived authority evidence.
-- Show statement withholding as a tax-credit candidate. Keep unconditional automatic credit at zero unless qualifying evidence supports it.
-- Show financing-interest accrual and actual-payment bases separately. Do not deduct financing interest by default.
+- Show statement withholding as a tax-credit candidate. Default applied credit is zero; when the user explicitly requests `--withholding-credit`, apply only up to the China-tax amount and keep a tax-evidence warning until qualifying evidence/professional review confirms eligibility.
+- Show financing-interest accrual and actual-payment bases separately. `--deduct-margin-interest` is a deduction request/candidate, not an automatic legal conclusion; do not deduct financing interest by default.
+- Treat `MOVING_AVERAGE` as the default primary review method while retaining both FIFO and moving-average outputs for audit comparison. Use repeatable `--extra-input-dir` roots for FIFO opening-history evidence.
+- Treat `processed_delivery.zip` as sensitive. Prefer `sanitized_delivery.zip` only when deidentified aggregate review is sufficient.
 - If prior statements are missing, still generate the workbook when possible and mark opening-cost evidence incomplete or blocked.
 - Match statement layouts by normalized capability anchors and known header aliases, not by hard-coded calendar year.
 - Use the native PDF text layer first. If text is degraded or template recognition fails, use the optional OCR fallback; retain provenance and require validation before accepting OCR-assisted structure.

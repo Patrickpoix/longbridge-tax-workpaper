@@ -136,13 +136,23 @@ def assess_filing_readiness(
     )
 
     report = cost_report or {}
-    report_errors = list(report.get("errors", [])) if isinstance(report, dict) else ["cost report missing"]
+    method_profile = profile.get("cost_basis_method", {})
+    selected_method = method_profile.get("selected_method")
+    method_errors = report.get("method_errors", {}) if isinstance(report, dict) else {}
+    if selected_method in {"FIFO", "MOVING_AVERAGE"} and isinstance(method_errors, dict):
+        report_errors = list(method_errors.get(selected_method, report.get("errors", [])))
+    else:
+        report_errors = list(report.get("errors", [])) if isinstance(report, dict) else ["cost report missing"]
     add(
         "COST_BASIS_ENGINE",
         "跨月成本基础与处置匹配",
         "PASS" if report and not report_errors else "BLOCKED",
         not report or bool(report_errors),
-        "先进先出法与移动加权平均法成本账已生成" if report and not report_errors else "; ".join(report_errors or ["missing"]),
+        (
+            f"成本账已生成；主方法={selected_method or 'BOTH/UNCONFIRMED'}"
+            if report and not report_errors
+            else "; ".join(report_errors or ["missing"])
+        ),
     )
 
     prior_coverage = report.get("prior_period_coverage", {}) if isinstance(report, dict) else {}
@@ -221,9 +231,12 @@ def assess_filing_readiness(
         evidence_detail,
     )
 
-    method = profile.get("cost_basis_method", {})
+    method = method_profile
     selected_method = method.get("selected_method")
-    method_confirmed = selected_method in {"FIFO", "MOVING_AVERAGE"} and method.get("status") == "confirmed"
+    method_confirmed = (
+        selected_method in {"FIFO", "MOVING_AVERAGE"}
+        and method.get("status") in {"confirmed", "user_selected"}
+    )
     add(
         "COST_METHOD_CONFIRMATION",
         "最终成本配对方法",
@@ -244,14 +257,37 @@ def assess_filing_readiness(
         risk="tax_treatment",
     )
 
+    dividend_basis = policy.get("dividend_filing_basis", {})
+    credit_requested = bool(dividend_basis.get("apply_statement_withholding_credit"))
+    add(
+        "WITHHOLDING_CREDIT_EVIDENCE",
+        "境外预扣税抵免证据",
+        "WARNING" if credit_requested else "PASS",
+        False,
+        (
+            "已按用户请求在工作底稿中应用月结单预扣税抵免候选，但仍须以合格完税/纳税凭证复核"
+            if credit_requested
+            else "未自动应用月结单预扣税抵免；仅保留候选金额"
+        ),
+        risk="tax_treatment",
+    )
+
     margin_rule = policy.get("category_rules", {}).get("margin_interest_deductible", {})
-    margin_final = margin_rule.get("deductible_in_final_filing") is False
+    deduction_requested = bool(margin_rule.get("deduction_requested"))
+    custom_deductible = margin_rule.get("deductible_in_final_filing") is True
+    margin_warning = deduction_requested or custom_deductible
     add(
         "MARGIN_INTEREST_TAX_TREATMENT",
         "融资利息处理",
-        "PASS" if margin_final else "WARNING",
+        "WARNING" if margin_warning else "PASS",
         False,
-        "默认不扣除；应计与实际支付仅作审计列示" if margin_final else "处理口径待确认",
+        (
+            "已请求融资利息扣除，但默认仍只列为待复核候选，不自动进入最终应纳税所得额扣除"
+            if deduction_requested and not custom_deductible
+            else "自定义政策声明可扣除；程序尊重该配置但仍要求人工复核"
+            if custom_deductible
+            else "默认不扣除；应计与实际支付仅作审计列示"
+        ),
         risk="tax_treatment",
     )
 

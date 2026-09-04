@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -487,6 +488,8 @@ def build_opening_lots(
                 "broker display cost is not used as tax basis"
             )
             continue
+        source_pdf_path = Path(first.source_pdf)
+        source_pdf_hash = sha256_file(source_pdf_path) if source_pdf_path.is_file() else "unavailable"
         lot = Lot(
             security_id=security_id,
             symbol=symbol,
@@ -499,7 +502,7 @@ def build_opening_lots(
             source_type="opening_statement_average_cost",
             source_reference=f"{first.statement_month}:holdings:{row_index}",
             source_pdf=Path(first.source_pdf).name,
-            evidence=f"opening_position={quantity}; statement_unit_cost={unit_cost}; source_pdf_sha256={sha256_file(first.source_pdf)}",
+            evidence=f"opening_position={quantity}; statement_unit_cost={unit_cost}; source_pdf_sha256={source_pdf_hash}",
         )
         lots.append(lot)
     return lots, errors
@@ -507,12 +510,12 @@ def build_opening_lots(
 
 def _prior_period_opening_lots(
     prior_list: list[StatementResult], *, tax_year: int,
-) -> tuple[list[Lot], list[Lot], list[dict[str, object]], list[str], dict[str, object]]:
+) -> tuple[list[Lot], list[Lot], list[dict[str, object]], dict[str, list[str]], dict[str, object]]:
     """Reconstruct opening lots from prior-period trade history."""
     fifo_lots: list[Lot] = []
     moving_lots: list[Lot] = []
     opening_rows: list[dict[str, object]] = []
-    errors: list[str] = []
+    errors: dict[str, list[str]] = {"FIFO": [], "MOVING_AVERAGE": []}
     prior_events: list[CostBasisEvent] = []
     for stmt in prior_list:
         prior_events.extend(_find_trade_rows(stmt))
@@ -520,7 +523,7 @@ def _prior_period_opening_lots(
     prior_events.extend(_auto_ex_events(prior_list))
 
     fifo_result = run_fifo([], prior_events)
-    errors.extend(fifo_result.errors)
+    errors["FIFO"].extend(fifo_result.errors)
     for lot_dict in fifo_result.remaining_lots:
         lot = Lot(
             security_id=str(lot_dict["security_id"]),
@@ -543,7 +546,7 @@ def _prior_period_opening_lots(
         opening_rows.append(row)
 
     moving_result = run_moving_average([], prior_events)
-    errors.extend(moving_result.errors)
+    errors["MOVING_AVERAGE"].extend(moving_result.errors)
     for lot_dict in moving_result.remaining_lots:
         lot = Lot(
             security_id=str(lot_dict["security_id"]),
@@ -890,8 +893,6 @@ def _securities_needing_prior_data(
 
     Returns { "needs_prior": [sec_ids], "has_buys": [sec_ids] }
     """
-    from collections import Counter
-
     # 1. Get all BUY events in current year
     buys: set[str] = set()
     for stmt in statements:
@@ -919,9 +920,24 @@ def _securities_needing_prior_data(
                 if sid:
                     holdings_with_pos.add(sid)
 
-    needs_prior = sorted(holdings_with_pos - buys)
+    # Any positive year-opening inventory needs prior-period evidence for FIFO,
+    # regardless of whether the same security is bought again later this year.
+    needs_prior = sorted(holdings_with_pos)
     has_buys = sorted(buys)
     return {"needs_prior": needs_prior, "has_buys": has_buys}
+
+
+def _securities_covered_by_prior_data(
+    prior_statements: Iterable[StatementResult],
+) -> set[str]:
+    """Return securities with transaction/company-action evidence before the tax year."""
+    covered: set[str] = set()
+    for stmt in prior_statements:
+        for row in _find_trade_rows(stmt):
+            covered.add(row.security_id)
+        for row in _auto_ex_events([stmt]):
+            covered.add(row.security_id)
+    return covered
 
 
 # ---- Main entry point -----------------------------------------------------
@@ -949,24 +965,38 @@ def build_cost_basis_report(
     uncovered: set[str] = set(needs_prior)
     prior_trade_sids: set[str] = set()
     if prior_list and needs_prior:
-        for stmt in prior_list:
-            for row in _find_trade_rows(stmt):
-                prior_trade_sids.add(row.security_id)
-            for row in _auto_ex_events([stmt]):
-                prior_trade_sids.add(row.security_id)
+        prior_trade_sids = _securities_covered_by_prior_data(prior_list)
         covered = needs_prior & prior_trade_sids
         uncovered = needs_prior - prior_trade_sids
 
     if prior_list:
-        fifo_opening, moving_opening, opening_rows, opening_errors, prior_coverage = (
+        fifo_opening, moving_opening, opening_rows, method_opening_errors, prior_coverage = (
             _prior_period_opening_lots(prior_list, tax_year=tax_year)
         )
+        if uncovered:
+            fallback_lots, fallback_errors = build_opening_lots(statements_list, ())
+            fallback_by_sid = {lot.security_id: lot for lot in fallback_lots}
+            for sid in sorted(uncovered):
+                fallback = fallback_by_sid.get(sid)
+                if fallback is not None:
+                    # Preserve a calculable candidate for both methods, but only FIFO
+                    # is invalidated solely by missing transaction-level history.
+                    fifo_opening.append(deepcopy(fallback))
+                    moving_opening.append(deepcopy(fallback))
+                    for method in ("FIFO", "MOVING_AVERAGE"):
+                        row = fallback.to_dict()
+                        row["method"] = method
+                        row["evidence_status"] = "unverified_statement_display_cost"
+                        opening_rows.append(row)
+                matching_fallback_errors = [error for error in fallback_errors if sid in error]
+                method_opening_errors["FIFO"].extend(matching_fallback_errors)
+                method_opening_errors["MOVING_AVERAGE"].extend(matching_fallback_errors)
     else:
         fallback_lots, fallback_errors = build_opening_lots(
             statements_list, ()
         )
-        fifo_opening = fallback_lots
-        moving_opening = fallback_lots
+        fifo_opening = deepcopy(fallback_lots)
+        moving_opening = deepcopy(fallback_lots)
         opening_rows = []
         for method in ("FIFO", "MOVING_AVERAGE"):
             for lot in fallback_lots:
@@ -975,16 +1005,17 @@ def build_cost_basis_report(
                 row["evidence_status"] = "unverified_statement_display_cost"
                 opening_rows.append(row)
         if fallback_lots or fallback_errors:
-            opening_errors = [
-                *fallback_errors,
-            ]
+            method_opening_errors = {
+                "FIFO": list(fallback_errors),
+                "MOVING_AVERAGE": list(fallback_errors),
+            }
             prior_coverage = {
                 "status": "missing" if uncovered else "ok",
                 "actual_months": [],
                 "expected_months": [],
             }
         else:
-            opening_errors = []
+            method_opening_errors = {"FIFO": [], "MOVING_AVERAGE": []}
             prior_coverage = {
                 "status": "ok",
                 "actual_months": [],
@@ -1000,20 +1031,27 @@ def build_cost_basis_report(
     prior_coverage["securities_needing_prior"] = sorted(needs_prior)
     prior_coverage["securities_covered_by_prior"] = sorted(covered)
     prior_coverage["securities_uncovered"] = sorted(uncovered)
+    method_opening_errors["FIFO"].extend(
+        f"FIFO {sid}: prior-period transaction history required for opening inventory"
+        for sid in sorted(uncovered)
+    )
     events = build_cost_basis_events(statements_list)
     fifo = run_fifo(fifo_opening, events)
     moving = run_moving_average(moving_opening, events)
-    fifo.errors[:0] = opening_errors
-    moving.errors[:0] = opening_errors
+    fifo.errors[:0] = method_opening_errors["FIFO"]
+    moving.errors[:0] = method_opening_errors["MOVING_AVERAGE"]
     _reconcile(fifo, statements_list)
     _reconcile(moving, statements_list)
     differences = _difference_rows(fifo, moving)
     split_cash_issues = _split_cash_compensation_issues(statements_list)
+    method_errors = {
+        "FIFO": sorted(set(fifo.errors + split_cash_issues)),
+        "MOVING_AVERAGE": sorted(set(moving.errors + split_cash_issues)),
+    }
     errors = sorted(
         set(
-            fifo.errors
-            + moving.errors
-            + split_cash_issues
+            method_errors["FIFO"]
+            + method_errors["MOVING_AVERAGE"]
             + [
                 f"difference:{row['source_reference']}"
                 for row in differences
@@ -1029,6 +1067,7 @@ def build_cost_basis_report(
         "moving_average": moving,
         "differences": differences,
         "summary": _summary_rows([fifo, moving]),
+        "method_errors": method_errors,
         "errors": errors,
         "split_cash_review_issues": split_cash_issues,
         "ready": not errors,
