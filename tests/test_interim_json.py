@@ -2,6 +2,7 @@ from collections import defaultdict, deque
 import csv
 from decimal import Decimal as D
 import json
+import os
 import subprocess
 import sys
 
@@ -203,11 +204,13 @@ def test_installed_module_reports_incomplete_cost_in_output(tmp_path):
     executions = tmp_path / 'executions.json'
     executions.write_text(json.dumps(fills), encoding='utf-8')
     output = tmp_path / 'result'
+    env = {**os.environ, 'PYTHONUTF8': '0', 'PYTHONIOENCODING': 'cp1252'}
     result = subprocess.run([sys.executable, '-m', 'longbridge_tax_workpaper.interim',
         '--statements', str(statements), '--history-start', '202601', '--executions', str(executions),
         '--year', '2026', '--through-month', '2', '--output', str(output)],
-        capture_output=True)
+        capture_output=True, env=env)
     assert result.returncode == 0, result.stderr.decode(errors='replace')
+    assert json.loads(result.stdout.decode('utf-8'))['fifo']['review_status'] == '需要复核'
     report = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
     assert report['fifo']['review_status'] == '需要复核'
     assert report['fifo']['unknown_disposals'] == 1

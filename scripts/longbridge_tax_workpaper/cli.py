@@ -14,17 +14,7 @@ from .runner import run_workpaper
 from .discovery import find_pdfs_from_roots, parse_pdf_set, split_account_and_year
 from .postprocess import resolve_cross_month_statement_context
 from .cost_basis import _securities_covered_by_prior_data, _securities_needing_prior_data
-
-
-def _configure_text_io() -> None:
-    """Keep Chinese CLI output usable on Windows and redirected streams."""
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            try:
-                reconfigure(encoding="utf-8", errors="replace")
-            except (OSError, ValueError):
-                pass
+from .text_io import configure_text_io
 
 
 def _key_value_pairs(values: list[str], *, label: str) -> dict[str, str]:
@@ -385,7 +375,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _configure_text_io()
+    configure_text_io()
     parser = build_parser()
 
     # 无参数 → 交互式引导

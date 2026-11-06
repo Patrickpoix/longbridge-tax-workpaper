@@ -10,6 +10,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from .text_io import configure_text_io
+
 
 ZERO = Decimal('0')
 
@@ -349,6 +351,7 @@ def scenario(totals, pools, quotes, rates, sales=()):
 
 
 def main():
+    configure_text_io()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--statements', type=Path, required=True)
     parser.add_argument('--opening-fifo', type=Path)
