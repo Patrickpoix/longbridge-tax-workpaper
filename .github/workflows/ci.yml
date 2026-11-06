@@ -34,7 +34,9 @@ jobs:
       - name: Verify installed command
         run: |
           longbridge-tax-workpaper --help
+          longbridge-tax-interim --help
           python -m longbridge_tax_workpaper --help
+          python -m longbridge_tax_workpaper.interim --help
       - name: Build wheel and source distribution
         run: python -m build
       - name: Validate a clean tracked release tree

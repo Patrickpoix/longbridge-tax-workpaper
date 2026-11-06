@@ -10,6 +10,7 @@ include agents/openai.yaml
 recursive-include assets *.png
 recursive-include references *.md
 include scripts/run_workpaper.py
+include scripts/analyze_interim_json.py
 include scripts/validate_release.py
 recursive-include tests *.py *.pdf
 include .github/workflows/ci.yml

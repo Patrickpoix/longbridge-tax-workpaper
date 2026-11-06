@@ -32,6 +32,7 @@ ocr = [
 
 [project.scripts]
 longbridge-tax-workpaper = "longbridge_tax_workpaper.cli:main"
+longbridge-tax-interim = "longbridge_tax_workpaper.interim:main"
 
 [tool.setuptools]
 package-dir = {"" = "scripts"}
